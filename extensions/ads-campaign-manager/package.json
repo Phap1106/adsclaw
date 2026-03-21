@@ -1,0 +1,22 @@
+{
+  "name": "@openclaw/ads-campaign-manager",
+  "version": "2026.3.14",
+  "private": true,
+  "description": "OpenClaw ads campaign manager assistant plugin",
+  "type": "module",
+  "dependencies": {
+    "@sinclair/typebox": "0.34.48",
+    "mysql2": "^3.20.0",
+    "yaml": "2.8.2"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

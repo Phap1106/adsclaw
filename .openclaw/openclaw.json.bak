@@ -1,0 +1,60 @@
+{
+  "meta": {
+    "lastTouchedVersion": "2026.3.14",
+    "lastTouchedAt": "2026-03-17T15:45:47.484Z"
+  },
+  "auth": {
+    "profiles": {
+      "openai:default": {
+        "provider": "openai",
+        "mode": "api_key"
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": "openai/gpt-4o-mini",
+      "workspace": "/home/node/.openclaw/workspace",
+      "compaction": {
+        "mode": "safeguard"
+      }
+    }
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": true,
+    "ownerDisplay": "raw"
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "lan",
+    "auth": {
+      "mode": "token",
+      "token": "707d45c2261885d92c1e4c34ecda0c8e454dd0f77ec0fb40"
+    }
+  },
+  "plugins": {
+    "entries": {
+      "ads-campaign-manager": {
+        "enabled": true,
+        "config": {
+          "locale": "vi",
+          "safeMode": true,
+          "refreshIntervalMinutes": 15,
+          "snapshotPath": "/app/extensions/ads-campaign-manager/references/snapshot.example.json",
+          "sourceRegistryPath": "/app/extensions/ads-campaign-manager/references/source-registry.yaml",
+          "database": {
+            "enabled": true,
+            "host": "ads-mysql",
+            "port": 3306,
+            "user": "root",
+            "password": "password",
+            "database": "ads_manager"
+          }
+        }
+      }
+    }
+  }
+}

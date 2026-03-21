@@ -1,0 +1,23 @@
+{
+  "501e3649-7e99-4bd6-a73f-29cf6e3728f2": {
+    "requestId": "501e3649-7e99-4bd6-a73f-29cf6e3728f2",
+    "deviceId": "17e546ceee8f3ef714f221102279b483ae16d54e814b2948af6627ceb1dfe847",
+    "publicKey": "T7-eV0pVE-imr0KMpTOY9BfOZFLDVIVL4ASFLqkzVlk",
+    "platform": "Win32",
+    "clientId": "openclaw-control-ui",
+    "clientMode": "webchat",
+    "role": "operator",
+    "roles": [
+      "operator"
+    ],
+    "scopes": [
+      "operator.admin",
+      "operator.approvals",
+      "operator.pairing"
+    ],
+    "remoteIp": "172.22.0.1",
+    "silent": false,
+    "isRepair": false,
+    "ts": 1773807124795
+  }
+}

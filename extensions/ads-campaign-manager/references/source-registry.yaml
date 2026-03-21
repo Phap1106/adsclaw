@@ -1,0 +1,415 @@
+version: 1
+id: ads-campaign-manager-source-registry
+name: Ads Campaign Manager Source Registry
+description: >
+  Approved external learning corpus for the future knowledge_base_loader.
+  This registry keeps the assistant focused on high-trust, high-signal sources
+  and prevents broad unsupervised ingestion.
+updatedAt: 2026-03-16
+owner: ads-campaign-manager
+
+governance:
+  ingestionMode: whitelist_only
+  defaultEnabled: true
+  requireHumanApprovalForNewDomain: true
+  requireMetadataForEveryDocument: true
+  allowedUsageModes:
+    - platform_rule
+    - policy_boundary
+    - tactic_heuristic
+    - ops_watch
+  sourceTierRules:
+    tier1_official:
+      purpose:
+        - platform_mechanics
+        - policy
+        - billing_behavior
+        - delivery_rules
+      executionEligible: true
+      reviewCadence: monthly
+    tier2_practitioner:
+      purpose:
+        - interpretation
+        - testing_heuristics
+        - audit_frameworks
+        - scaling_heuristics
+      executionEligible: false
+      reviewCadence: quarterly
+    tier3_watch_only:
+      purpose:
+        - incident_watch
+        - ops_sanity_check
+      executionEligible: false
+      reviewCadence: monthly
+  precedence:
+    platform_mechanics:
+      - tier1_official
+    policy:
+      - tier1_official
+    business_specific_decision:
+      - internal_memory
+      - boss_playbook
+      - tier1_official
+      - tier2_practitioner
+    tactical_heuristics:
+      - internal_memory
+      - boss_playbook
+      - tier2_practitioner
+      - tier1_official
+  recommendationRequirements:
+    - expose source tier in the final recommendation
+    - distinguish rule vs heuristic vs observation
+    - do not auto-promote practitioner heuristics into write actions
+    - require attribution-awareness for performance comparisons
+    - require delivery-status and activity-history checks before root-cause claims
+
+metadataSchema:
+  requiredFields:
+    - id
+    - enabled
+    - tier
+    - organization
+    - title
+    - url
+    - topics
+    - usageMode
+    - reviewCadence
+    - trustReason
+  optionalFields:
+    - author
+    - publishedAt
+    - reviewedAt
+    - notes
+    - actionNotes
+    - fetchHints
+
+sources:
+  - id: meta_ads_pricing
+    enabled: true
+    tier: tier1_official
+    organization: Meta
+    title: Meta Ads Pricing
+    url: https://www.facebook.com/business/ads/pricing
+    topics:
+      - budgeting
+      - pacing
+      - billing_behavior
+    usageMode: platform_rule
+    reviewCadence: monthly
+    trustReason: Official Meta guidance for budget behavior and spend expectations.
+    actionNotes:
+      - use for weekly-aware pacing logic
+      - do not treat daily budget as a hard daily ceiling
+
+  - id: meta_performance_marketing
+    enabled: true
+    tier: tier1_official
+    organization: Meta
+    title: Performance Marketing Best Practices
+    url: https://www.facebook.com/business/ads/performance-marketing
+    topics:
+      - optimization
+      - simplification
+      - learning_phase
+    usageMode: platform_rule
+    reviewCadence: monthly
+    trustReason: Official Meta best-practice guidance for modern account design.
+    actionNotes:
+      - use to bias toward simpler structures
+      - use to reduce unnecessary edits during learning
+
+  - id: meta_ad_set_structure
+    enabled: true
+    tier: tier1_official
+    organization: Meta
+    title: Ad Set Structure
+    url: https://www.facebook.com/business/ads/ad-set-structure
+    topics:
+      - campaign_structure
+      - audience_design
+    usageMode: platform_rule
+    reviewCadence: monthly
+    trustReason: Official source for campaign and ad-set structuring guidance.
+    actionNotes:
+      - use before splitting audiences or creating many micro ad sets
+
+  - id: meta_conversions_api
+    enabled: true
+    tier: tier1_official
+    organization: Meta
+    title: About Conversions API
+    url: https://www.facebook.com/business/help/AboutConversionsAPI
+    topics:
+      - measurement
+      - conversions_api
+      - signal_quality
+    usageMode: platform_rule
+    reviewCadence: monthly
+    trustReason: Official source for server-side event measurement quality.
+    actionNotes:
+      - use to justify signal-health checks before advanced optimization
+
+  - id: meta_delivery_status
+    enabled: true
+    tier: tier1_official
+    organization: Meta
+    title: Delivery Status In Ads Manager
+    url: https://www.facebook.com/help/messenger-app/650774041651557
+    topics:
+      - delivery
+      - diagnostics
+      - health_checks
+    usageMode: platform_rule
+    reviewCadence: monthly
+    trustReason: Official source for delivery-state interpretation.
+    actionNotes:
+      - check this source before diagnosing spend or volume drops
+
+  - id: meta_activity_history
+    enabled: true
+    tier: tier1_official
+    organization: Meta
+    title: Activity History In Ads Manager
+    url: https://www.facebook.com/help/messenger-app/289211751238030
+    topics:
+      - audit
+      - diagnostics
+      - change_tracking
+    usageMode: platform_rule
+    reviewCadence: monthly
+    trustReason: Official source for tracing who changed what and when.
+    actionNotes:
+      - root-cause analysis must check activity history before causal claims
+
+  - id: meta_advantage_audience
+    enabled: true
+    tier: tier1_official
+    organization: Meta
+    title: Advantage+ Audience
+    url: https://www.facebook.com/business/ads/meta-advantage-plus/audience
+    topics:
+      - audience
+      - advantage_plus
+      - targeting
+    usageMode: platform_rule
+    reviewCadence: monthly
+    trustReason: Official source for broader audience guidance and advertiser controls.
+    actionNotes:
+      - use broad-by-default unless a real business constraint requires tighter controls
+
+  - id: meta_advantage_placements
+    enabled: true
+    tier: tier1_official
+    organization: Meta
+    title: Advantage+ Placements
+    url: https://www.facebook.com/business/ads/meta-advantage-plus/placements
+    topics:
+      - placements
+      - advantage_plus
+      - delivery
+    usageMode: platform_rule
+    reviewCadence: monthly
+    trustReason: Official source for broader placement strategy.
+    actionNotes:
+      - default to broad placements unless justified by creative or brand constraints
+
+  - id: meta_advantage_budget
+    enabled: true
+    tier: tier1_official
+    organization: Meta
+    title: Advantage Campaign Budget
+    url: https://www.facebook.com/business/ads/meta-advantage-plus/budget
+    topics:
+      - budgeting
+      - campaign_budget
+      - allocation
+    usageMode: platform_rule
+    reviewCadence: monthly
+    trustReason: Official source for budget allocation at the campaign level.
+    actionNotes:
+      - use when deciding between campaign-level and ad-set-level budget control
+
+  - id: meta_ad_targeting
+    enabled: true
+    tier: tier1_official
+    organization: Meta
+    title: Ad Targeting
+    url: https://www.facebook.com/business/ads/ad-targeting
+    topics:
+      - targeting
+      - audience
+      - sizing
+    usageMode: platform_rule
+    reviewCadence: monthly
+    trustReason: Official source for targeting controls and audience guidance.
+    actionNotes:
+      - use to prevent over-segmentation and outdated targeting assumptions
+
+  - id: meta_ad_library
+    enabled: true
+    tier: tier1_official
+    organization: Meta
+    title: Meta Ad Library API
+    url: https://www.facebook.com/ads/library/api/
+    topics:
+      - competitor_research
+      - creative_observation
+      - market_intelligence
+    usageMode: platform_rule
+    reviewCadence: monthly
+    trustReason: Official source for observable competitor ad data.
+    actionNotes:
+      - use for creative and messaging observation only
+      - do not claim spend efficiency or profitability from this source alone
+
+  - id: meta_personal_attributes_policy
+    enabled: true
+    tier: tier1_official
+    organization: Meta
+    title: Personal Attributes Policy
+    url: https://transparency.fb.com/vi-vn/policies/ad-standards/personal-attributes/
+    topics:
+      - policy
+      - ad_copy
+      - compliance
+    usageMode: policy_boundary
+    reviewCadence: monthly
+    trustReason: Official policy boundary for risky copy and targeting language.
+    actionNotes:
+      - use for copy preflight and blocked-phrase screening
+
+  - id: meta_targeting_update_2025
+    enabled: true
+    tier: tier1_official
+    organization: Meta
+    title: Targeting Update Reference
+    url: https://www.facebook.com/help/157306091096340
+    topics:
+      - targeting
+      - platform_changes
+    usageMode: platform_rule
+    reviewCadence: monthly
+    trustReason: Official source tracking targeting-related product changes.
+    notes: >
+      This source is used to keep targeting logic current. It is currently cited
+      because it notes that detailed targeting exclusions were removed from new
+      ad sets starting March 31, 2025.
+
+  - id: jonloomer_attribution_setting
+    enabled: true
+    tier: tier2_practitioner
+    organization: Jon Loomer Digital
+    author: Jon Loomer
+    title: How The Attribution Setting Works
+    url: https://www.jonloomer.com/qvt/how-the-attribution-setting-works/
+    topics:
+      - attribution
+      - reporting
+      - optimization
+    usageMode: tactic_heuristic
+    reviewCadence: quarterly
+    trustReason: Named specialist with deep Meta Ads educational content and clear methodology.
+    actionNotes:
+      - use to explain how attribution setting affects delivery and reported results
+      - never replace official Meta mechanics when there is a conflict
+
+  - id: jonloomer_compare_attribution
+    enabled: true
+    tier: tier2_practitioner
+    organization: Jon Loomer Digital
+    author: Jon Loomer
+    title: Compare Attribution Settings To Get More From Meta Conversion Data
+    url: https://www.jonloomer.com/compare-attribution-settings-get-the-most-of-meta-conversion-data/
+    topics:
+      - attribution
+      - diagnostics
+      - reporting
+    usageMode: tactic_heuristic
+    reviewCadence: quarterly
+    trustReason: Useful practitioner guidance for attribution-aware analysis and comparison discipline.
+    actionNotes:
+      - use before labeling a campaign as winner or loser based on conversion metrics
+
+  - id: foxwell_creative_testing
+    enabled: true
+    tier: tier2_practitioner
+    organization: Foxwell Digital
+    title: Meta Creative Testing - Finding Your Path To Consistent Winners
+    url: https://www.foxwelldigital.com/blog/meta-creative-testing-finding-your-path-to-consistent-winners
+    topics:
+      - creative_testing
+      - experiments
+      - test_design
+    usageMode: tactic_heuristic
+    reviewCadence: quarterly
+    trustReason: Strong operational guidance on disciplined creative testing.
+    actionNotes:
+      - use to define test duration, test volume, and winner graduation rules
+      - do not treat creative heuristics as universal truth across all accounts
+
+  - id: foxwell_scaling_discipline
+    enabled: true
+    tier: tier2_practitioner
+    organization: Foxwell Digital
+    title: Scaling Isnt About Hacks - Its About Discipline
+    url: https://www.foxwelldigital.com/blog/scaling-isnt-about-hacks-its-about-discipline
+    topics:
+      - scaling
+      - budgeting
+      - pacing
+    usageMode: tactic_heuristic
+    reviewCadence: quarterly
+    trustReason: Good practitioner source for disciplined scaling behaviors and creative dependency.
+    actionNotes:
+      - use for cautious scale recommendations only
+      - require account-specific evidence before execution
+
+  - id: foxwell_meta_audits
+    enabled: true
+    tier: tier2_practitioner
+    organization: Foxwell Digital
+    title: How We Approach Meta Ads Audits - A Strategic Framework For Better Performance
+    url: https://www.foxwelldigital.com/blog/how-we-approach-meta-ads-audits-a-strategic-framework-for-better-performance
+    topics:
+      - auditing
+      - diagnostics
+      - account_review
+    usageMode: tactic_heuristic
+    reviewCadence: quarterly
+    trustReason: Useful structured audit thinking that goes beyond raw KPI inspection.
+    actionNotes:
+      - use to guide audit checklists and diagnosis structure
+
+  - id: foxwell_status_watch
+    enabled: true
+    tier: tier3_watch_only
+    organization: Foxwell Digital
+    title: Foxwell Digital Meta Status
+    url: https://www.foxwelldigital.com/status
+    topics:
+      - incident_watch
+      - ops
+    usageMode: ops_watch
+    reviewCadence: monthly
+    trustReason: Useful only as an operational watchboard when Meta behavior appears unstable.
+    actionNotes:
+      - never use as a primary strategy source
+      - never convert directly into auto-action behavior
+
+exclusions:
+  blockedSourcePatterns:
+    - anonymous roundup
+    - seo listicle
+    - scraped ad spy summary
+    - short-form video without transcript
+    - AI-generated article with no named methodology
+  blockedDomains: []
+
+loaderHints:
+  preferredFormat: yaml
+  loaderBehavior:
+    - load enabled sources only
+    - refuse unknown domains unless explicitly approved
+    - attach source metadata to every stored chunk
+    - keep tier1 and tier2 content in separate retrieval buckets
+    - require explicit opt-in before using tier2 content in execution recommendations

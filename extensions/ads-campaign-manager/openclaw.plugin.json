@@ -1,0 +1,277 @@
+{
+  "id": "ads-campaign-manager",
+  "name": "Ads Campaign Manager",
+  "description": "Telegram-first ads assistant with governed learning sources and approval-safe recommendations.",
+  "skills": ["./skills"],
+  "uiHints": {
+    "business.name": {
+      "label": "Business Name",
+      "help": "Display name used in reports and Telegram dashboards."
+    },
+    "business.ownerName": {
+      "label": "Owner Name",
+      "help": "Main operator or boss name for assistant reports."
+    },
+    "snapshotPath": {
+      "label": "Snapshot File",
+      "help": "Path to a local JSON snapshot used for reports, alerts, and proposals."
+    },
+    "sourceRegistryPath": {
+      "label": "Source Registry Path",
+      "help": "Path to the curated YAML source registry. Leave empty to use the bundled default."
+    },
+    "intelligence.search.enabled": {
+      "label": "Enable Web Search",
+      "help": "Allow the assistant to search the web using Serper/Google."
+    },
+    "intelligence.apify.enabled": {
+      "label": "Enable Apify Scraper",
+      "help": "Allow deep Facebook Ad Library analysis via Apify API."
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "locale": {
+        "type": "string",
+        "enum": ["vi", "en"]
+      },
+      "safeMode": {
+        "type": "boolean"
+      },
+      "refreshIntervalMinutes": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 1440
+      },
+      "snapshotPath": {
+        "type": "string"
+      },
+      "sourceRegistryPath": {
+        "type": "string"
+      },
+      "business": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "industry": { "type": "string" },
+          "ownerName": { "type": "string" },
+          "primaryObjective": { "type": "string" },
+          "currency": { "type": "string" },
+          "timezone": { "type": "string" }
+        }
+      },
+      "thresholds": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "minCtr": {
+            "type": "number",
+            "minimum": 0
+          },
+          "maxCpa": {
+            "type": "number",
+            "minimum": 0
+          },
+          "minRoas": {
+            "type": "number",
+            "minimum": 0
+          },
+          "scaleRoas": {
+            "type": "number",
+            "minimum": 0
+          },
+          "minSpendForDecision": {
+            "type": "number",
+            "minimum": 0
+          },
+          "budgetPacingTolerance": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 3
+          }
+        }
+      },
+      "telegram": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "showDashboardButtons": {
+            "type": "boolean"
+          },
+          "maxProposalButtons": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 6
+          }
+        }
+      },
+      "database": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "number"
+          },
+          "user": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "database": {
+            "type": "string"
+          }
+        }
+      },
+      "aiAnalysis": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": true },
+          "model": { "type": "string", "default": "openai/gpt-4o-mini" },
+          "intervalHours": { "type": "number", "default": 6 }
+        }
+      },
+      "execution": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enableMetaWrites": { "type": "boolean", "default": false },
+          "scaleUpMultiplier": { "type": "number", "minimum": 1.01, "maximum": 3, "default": 1.15 },
+          "scaleDownMultiplier": { "type": "number", "minimum": 0.1, "maximum": 0.99, "default": 0.85 },
+          "minimumBudget": { "type": "number", "minimum": 0, "default": 100000 }
+        }
+      },
+      "meta": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "accessToken": { "type": "string" },
+          "accessTokenEnvVar": { "type": "string" },
+          "appSecret": { "type": "string" },
+          "appSecretEnvVar": { "type": "string" },
+          "adAccountId": { "type": "string" },
+          "graphVersion": { "type": "string", "default": "v21.0" },
+          "insightsDatePreset": { "type": "string", "enum": ["today", "yesterday", "last_3d", "last_7d"], "default": "today" },
+          "campaignLimit": { "type": "number", "minimum": 1, "maximum": 1000, "default": 250 },
+          "webhookVerifyToken": { "type": "string" },
+          "webhookVerifyTokenEnvVar": { "type": "string" },
+          "webhookPath": { "type": "string", "default": "/plugins/ads-campaign-manager/meta/webhook" },
+          "syncOnWebhook": { "type": "boolean", "default": true }
+        }
+      },
+      "intelligence": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "search": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "provider": { "type": "string", "enum": ["serper", "google"] },
+              "apiKey": { "type": "string" },
+              "apiKeyEnvVar": { "type": "string" }
+            }
+          },
+          "scrape": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "provider": { "type": "string", "enum": ["playwright", "fetch"] }
+            }
+          },
+          "apify": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "apiToken": { "type": "string" },
+              "apiTokenEnvVar": { "type": "string" }
+            }
+          }
+        }
+      },
+      "fptAi": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "apiKey": { "type": "string" },
+          "apiKeyEnvVar": { "type": "string" }
+        }
+      }
+    }
+  },
+  "agent": {
+    "persona": {
+      "name": "Ads Manager Specialist",
+      "role": "You are a professional Ads Manager Specialist with years of experience in Meta Ads. You are proactive, data-driven, and focused on maximizing ROAS and minimizing CPA for your boss.",
+      "personality": "Helpful, efficient, professional, and slightly obsessed with data performance. You address the user as 'Boss'.",
+      "guidelines": [
+        "Use 'Ads Manager Brief' tool to get context before answering.",
+        "Use 'ads_manager_search' to find competitor fanpages if you lack information.",
+        "Use 'ads_manager_scrape' to read competitor content and landing pages.",
+        "Use 'ads_manager_analyze_ads' (Apify) to deeply analyze active ads when a Facebook URL is provided.",
+        "Use 'ads_manager_save_competitor' to save competitor insights (Creative angle, strategy) to your long-term memory.",
+        "Create proposals when you see optimization opportunities.",
+        "Always summarize your findings in a concise, action-oriented way.",
+        "If you encounter issues, report them as warnings.",
+        "Respect the 'safeMode' setting: if it's true, never execute changes directly, only create proposals."
+      ]
+    },
+    "routing": {
+      "intentions": [
+        {
+          "id": "ads_report",
+          "description": "User wants an ads performance report, overview, or status check.",
+          "examples": [
+            "Lấy báo cáo cho tôi",
+            "Tình hình campaign hôm nay thế nào?",
+            "ROAS hiện tại là bao nhiêu?",
+            "Có cảnh báo nào không em?"
+          ]
+        },
+        {
+          "id": "ads_proposal",
+          "description": "User wants to create a proposal, optimize, or change campaigns.",
+          "examples": [
+            "Tạo đề xuất tắt chiến dịch có CPA cao",
+            "Tối ưu ngân sách cho anh",
+            "Hôm nay nên làm gì để tăng doanh thu?"
+          ]
+        },
+        {
+          "id": "ads_instruction",
+          "description": "User is giving a direct instruction or feedback to the assistant.",
+          "examples": [
+            "Anh muốn em theo dõi sát chiến dịch X",
+            "OK thực hiện đi em",
+            "Dừng báo cáo này lại"
+          ]
+        },
+        {
+          "id": "ads_competitor_analysis",
+          "description": "User wants to analyze a competitor, search for fanpages, or scrape ad data.",
+          "examples": [
+            "Phân tích quảng cáo của https://www.facebook.com/taxprovietnam",
+            "Tìm đối thủ ngành kế toán cho anh",
+            "Cào dữ liệu trang này đi em",
+            "Thám thính đối thủ X"
+          ]
+        }
+      ]
+    }
+  }
+}

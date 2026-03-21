@@ -25,6 +25,7 @@ export type GatewayLockHandle = {
   release: () => Promise<void>;
 };
 
+
 export type GatewayLockOptions = {
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
@@ -174,6 +175,12 @@ export async function acquireGatewayLock(
   opts: GatewayLockOptions = {},
 ): Promise<GatewayLockHandle | null> {
   const env = opts.env ?? process.env;
+  const log = (msg: string) => {
+    if (env.DEBUG?.includes("openclaw:infra:lock")) {
+      process.stderr.write(`[lock] ${msg}\n`);
+    }
+  };
+  log(`acquiring lock (port=${opts.port})`);
   const allowInTests = opts.allowInTests === true;
   if (
     env.OPENCLAW_ALLOW_MULTI_GATEWAY === "1" ||

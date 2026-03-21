@@ -1,0 +1,96 @@
+{
+  "meta": {
+    "lastTouchedVersion": "2026.3.14",
+    "lastTouchedAt": "2026-03-18T03:58:17.648Z"
+  },
+  "auth": {
+    "profiles": {
+      "openai:default": {
+        "provider": "openai",
+        "mode": "api_key"
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": "openai/gpt-4o-mini",
+      "workspace": "/home/node/.openclaw/workspace",
+      "compaction": {
+        "mode": "safeguard"
+      }
+    }
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": true,
+    "ownerDisplay": "raw"
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "loopback",
+    "controlUi": {
+      "allowedOrigins": [
+        "http://localhost:18789",
+        "http://127.0.0.1:18789"
+      ]
+    },
+    "auth": {
+      "mode": "token",
+      "token": "707d45c2261885d92c1e4c34ecda0c8e454dd0f77ec0fb40"
+    }
+  },
+  "plugins": {
+    "entries": {
+      "ads-campaign-manager": {
+        "enabled": true,
+        "config": {
+          "locale": "vi",
+          "safeMode": true,
+          "refreshIntervalMinutes": 15,
+          "business": {
+            "name": "Boss Store Vietnam",
+            "industry": "Thực phẩm chức năng & Chăm sóc sức khỏe (Health & Wellness)",
+            "ownerName": "Boss",
+            "primaryObjective": "Tối ưu ROAS và mở rộng quy mô các chiến dịch chuyển đổi hiệu quả",
+            "currency": "VND",
+            "timezone": "Asia/Ho_Chi_Minh"
+          },
+          "snapshotPath": "./extensions/ads-campaign-manager/references/snapshot.example.json",
+          "sourceRegistryPath": "./extensions/ads-campaign-manager/references/source-registry.yaml",
+          "database": {
+            "enabled": false,
+            "host": "127.0.0.1",
+            "port": 3306,
+            "user": "root",
+            "password": "password",
+            "database": "ads_manager"
+          },
+          "aiAnalysis": {
+            "enabled": true,
+            "model": "openai/gpt-4o-mini",
+            "intervalHours": 6
+          },
+          "meta": {
+            "enabled": false,
+            "accessToken": "ĐIỀN_TOKEN_CỦA_SẾP_VÀO_ĐÂY",
+            "adAccountId": "act_ĐIỀN_ID_TÀI_KHOẢN_VÀO_ĐÂY",
+            "insightsDatePreset": "today"
+          },
+          "intelligence": {
+            "search": {
+              "enabled": true,
+              "provider": "serper",
+              "apiKeyEnvVar": "SERPER_API_KEY"
+            },
+            "scrape": {
+              "enabled": true,
+              "provider": "playwright"
+            }
+          }
+        }
+      }
+    }
+  }
+}

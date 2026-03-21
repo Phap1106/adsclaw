@@ -1,0 +1,88 @@
+{
+  "generatedAt": "2026-03-16T08:30:00.000Z",
+  "account": {
+    "id": "act_1234567890",
+    "name": "Boss Store Vietnam",
+    "objective": "Scale profitable purchase campaigns",
+    "currency": "VND",
+    "status": "active",
+    "spendToday": 4100000,
+    "spendYesterday": 3850000,
+    "budgetToday": 6000000,
+    "roas": 2.32,
+    "ctr": 0.019,
+    "cpa": 182000
+  },
+  "campaigns": [
+    {
+      "id": "cmp_scale_hcm",
+      "name": "Scale HCM Purchases",
+      "objective": "purchase",
+      "status": "active",
+      "spendToday": 2100000,
+      "budget": 2600000,
+      "roas": 3.12,
+      "ctr": 0.022,
+      "cpa": 148000,
+      "cvr": 0.041,
+      "learningPhase": false,
+      "region": "Ho Chi Minh City",
+      "audience": "Lookalike buyers 1%",
+      "notes": ["Creative 04 is the current winner", "Landing page A loads under 2s"]
+    },
+    {
+      "id": "cmp_test_north",
+      "name": "Testing North Region",
+      "objective": "purchase",
+      "status": "active",
+      "spendToday": 1350000,
+      "budget": 1400000,
+      "roas": 1.18,
+      "ctr": 0.011,
+      "cpa": 308000,
+      "cvr": 0.019,
+      "learningPhase": false,
+      "region": "Ha Noi",
+      "audience": "Broad women 23-34",
+      "notes": ["High spend but weak checkout completion"]
+    },
+    {
+      "id": "cmp_retarget_all",
+      "name": "Retarget 14D All Visitors",
+      "objective": "purchase",
+      "status": "active",
+      "spendToday": 650000,
+      "budget": 900000,
+      "roas": 2.08,
+      "ctr": 0.016,
+      "cpa": 174000,
+      "cvr": 0.033,
+      "learningPhase": true,
+      "region": "National",
+      "audience": "Website visitors 14d"
+    }
+  ],
+  "competitors": [
+    {
+      "id": "comp_alpha",
+      "name": "Alpha Beauty",
+      "region": "Vietnam",
+      "angle": "Bundle offer + testimonial UGC",
+      "observedAt": "2026-03-15T02:00:00.000Z",
+      "note": "Creative angle leans hard into before/after proof and free shipping.",
+      "sourceUrl": "https://www.facebook.com/ads/library/"
+    },
+    {
+      "id": "comp_beta",
+      "name": "Beta Skin Lab",
+      "region": "Vietnam",
+      "angle": "Doctor-led authority framing",
+      "observedAt": "2026-03-14T04:00:00.000Z",
+      "note": "Landing page emphasizes expert validation more than discounting."
+    }
+  ],
+  "notes": [
+    "Snapshot is local mock data for plugin development and Telegram UX testing.",
+    "Replace with a real data connector before enabling live operational decisions."
+  ]
+}

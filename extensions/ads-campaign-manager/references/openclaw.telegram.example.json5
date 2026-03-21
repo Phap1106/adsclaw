@@ -1,0 +1,60 @@
+// Example OpenClaw config snippet for the ads assistant plugin.
+// Keep the Telegram token out of git. Prefer TELEGRAM_BOT_TOKEN in env or a private local config file.
+{
+  plugins: {
+    allow: ["ads-campaign-manager"],
+    entries: {
+      "ads-campaign-manager": {
+        enabled: true,
+        config: {
+          locale: "vi",
+          safeMode: true,
+          refreshIntervalMinutes: 15,
+          snapshotPath: "extensions/ads-campaign-manager/references/snapshot.example.json",
+          sourceRegistryPath: "extensions/ads-campaign-manager/references/source-registry.yaml",
+          business: {
+            name: "Boss Store Vietnam",
+            ownerName: "Sếp",
+            primaryObjective: "Scale profitable purchase campaigns safely",
+            currency: "VND",
+            timezone: "Asia/Ho_Chi_Minh",
+          },
+          thresholds: {
+            minCtr: 0.012,
+            maxCpa: 250000,
+            minRoas: 1.5,
+            scaleRoas: 2.6,
+            minSpendForDecision: 300000,
+            budgetPacingTolerance: 1.15,
+          },
+          telegram: {
+            showDashboardButtons: true,
+            maxProposalButtons: 3,
+          },
+        },
+      },
+    },
+  },
+  channels: {
+    telegram: {
+      enabled: true,
+      // botToken: "<private>",
+      dmPolicy: "allowlist",
+      allowFrom: ["123456789"],
+      commands: {
+        native: true,
+        nativeSkills: false,
+      },
+      capabilities: {
+        inlineButtons: "all",
+      },
+      linkPreview: false,
+      chunkMode: "newline",
+      groups: {
+        "*": {
+          requireMention: true,
+        },
+      },
+    },
+  },
+}

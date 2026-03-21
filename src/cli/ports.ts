@@ -343,19 +343,42 @@ export function probePortFree(port: number, host = "0.0.0.0"): Promise<boolean> 
   return new Promise((resolve, reject) => {
     const srv = createServer();
     srv.unref();
-    srv.once("error", (err: NodeJS.ErrnoException) => {
+
+    let settled = false;
+    const finish = (result: boolean | Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      srv.removeAllListeners();
       srv.close();
+      if (result instanceof Error) {
+        reject(result);
+      } else {
+        resolve(result);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      // Conservative for liveness checks: timeout usually means some OS-level
+      // stall or unresponsive local listener. Treat as busy/occupied to allow fallback.
+      finish(false);
+    }, 1500);
+
+    srv.once("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") {
         // Genuinely transient — port still in use or TIME_WAIT after a --force kill.
-        resolve(false);
+        finish(false);
       } else {
         // Non-retryable: EADDRNOTAVAIL (bad host address), EACCES (privileged port),
         // EINVAL, and any other OS errors. Surface immediately; no retry loop.
-        reject(err);
+        finish(err);
       }
     });
+
     srv.listen(port, host, () => {
-      srv.close(() => resolve(true));
+      finish(true);
     });
   });
 }
@@ -368,6 +391,13 @@ export async function waitForPortBindable(
   port: number,
   opts: { timeoutMs?: number; intervalMs?: number; host?: string } = {},
 ): Promise<number> {
+  const env = process.env;
+  const log = (msg: string) => {
+    if (env.DEBUG?.includes("openclaw:infra:ports")) {
+      process.stderr.write(`[ports] ${msg}\n`);
+    }
+  };
+  log(`waiting for port ${port} to become bindable`);
   const timeoutMs = Math.max(opts.timeoutMs ?? 3000, 0);
   const intervalMs = Math.max(opts.intervalMs ?? 150, 1);
   const host = opts.host;
