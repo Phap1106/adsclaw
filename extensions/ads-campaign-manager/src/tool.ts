@@ -1,476 +1,715 @@
+/**
+ * tool.ts — v7 FIXED
+ *
+ * Bug fixes vs v6:
+ * 1. pageName undefined bug: safePageName guard before passing to Apify
+ * 2. resolvePageId called 3x (resolve_tool + meta_ad_library tool + fetchFacebookAdLibrary)
+ *    → Now resolve ONCE in tool.execute, pass results down
+ * 3. fetchFacebookAdLibrary only called for Graph API attempt — Apify called separately
+ * 4. Cleaner flow: resolve → Graph API try → Apify → Serper
+ */
+
 import { Static, Type } from "@sinclair/typebox";
 import type { AnyAgentTool, OpenClawPluginApi } from "openclaw/plugin-sdk/core";
-import { loadAssistantContext, setProposalStatus, acknowledgeInstruction, createProposal, appendCompetitorInsight } from "./assistant.js";
+import {
+  loadAssistantContext,
+  setProposalStatus,
+  acknowledgeInstruction,
+  createProposal,
+  appendCompetitorInsight,
+} from "./assistant.js";
 import { performWebSearch } from "./web-search.js";
 import { scrapePage } from "./scraper.js";
 import { analyzeCompetitorAdsWithApify } from "./apify-service.js";
-import { httpFetch, serperSearch, fetchFacebookAdLibrary, apifyFacebookAdsScraper } from "./http-fetch.js";
+import {
+  httpFetch,
+  serperSearch,
+  fetchFacebookAdLibrary,
+  apifyFacebookAdsScraper,
+  buildAdLibraryUrl,
+  type AdLibraryResult,
+} from "./http-fetch.js";
+import { resolvePageId, extractPageSlugFromUrl } from "./page-resolver.js";
 import type { AdsManagerPluginConfig } from "./types.js";
 
-type BriefMode = "report" | "overview" | "alerts" | "budget" | "plan" | "proposals" | "competitors";
+type BriefMode =
+  | "report" | "overview" | "alerts" | "budget"
+  | "plan" | "proposals" | "competitors";
 
 function stringEnum<T extends readonly string[]>(values: T, description: string) {
-  return Type.Unsafe<T[number]>({
-    type: "string",
-    enum: [...values],
-    description,
-  });
+  return Type.Unsafe<T[number]>({ type: "string", enum: [...values], description });
 }
 
 const BRIEF_MODES = [
-  "report",
-  "overview",
-  "alerts",
-  "budget",
-  "plan",
-  "proposals",
-  "competitors",
+  "report", "overview", "alerts", "budget",
+  "plan", "proposals", "competitors",
 ] as const;
 
-const AdsManagerBriefSchema = Type.Object(
-  {
-    mode: Type.Optional(stringEnum(BRIEF_MODES, "Assistant view to return.")),
-  },
-  { additionalProperties: false },
-);
+// ─── Brief payload ────────────────────────────────────────────────────────────
 
-type AdsManagerBriefParams = Static<typeof AdsManagerBriefSchema>;
-
-function buildPayload(mode: BriefMode, context: Awaited<ReturnType<typeof loadAssistantContext>>) {
-  const pending = context.state.proposals.filter((proposal) => proposal.status === "pending");
+function buildPayload(
+  mode: BriefMode,
+  context: Awaited<ReturnType<typeof loadAssistantContext>>,
+) {
+  const pending = context.state.proposals.filter((p) => p.status === "pending");
   switch (mode) {
     case "overview":
       return {
-        mode,
-        health: context.derived.health,
-        generatedAt: context.derived.generatedAt,
-        lastSyncAt: context.state.lastSyncAt,
-        alerts: context.derived.alerts.length,
-        winners: context.derived.winners.length,
-        watchlist: context.derived.watchlist.length,
-        atRisk: context.derived.atRisk.length,
-        operations: context.operations,
+        mode, health: context.derived.health, generatedAt: context.derived.generatedAt,
+        lastSyncAt: context.state.lastSyncAt, alerts: context.derived.alerts.length,
+        winners: context.derived.winners.length, watchlist: context.derived.watchlist.length,
+        atRisk: context.derived.atRisk.length, operations: context.operations,
         warnings: context.warnings,
       };
     case "alerts":
-      return {
-        mode,
-        alerts: context.derived.alerts,
-        operations: context.operations,
-        warnings: context.warnings,
-      };
+      return { mode, alerts: context.derived.alerts, operations: context.operations, warnings: context.warnings };
     case "budget":
       return {
-        mode,
-        budget: context.derived.budget,
-        operations: context.operations,
-        winners: context.derived.winners.map((view) => ({
-          id: view.campaign.id,
-          name: view.campaign.name,
-          roas: view.campaign.roas,
-          ctr: view.campaign.ctr,
+        mode, budget: context.derived.budget, operations: context.operations,
+        winners: context.derived.winners.map((v) => ({
+          id: v.campaign.id, name: v.campaign.name,
+          roas: v.campaign.roas, ctr: v.campaign.ctr,
         })),
       };
     case "plan":
       return {
-        mode,
-        dailyTasks: context.derived.dailyTasks,
+        mode, dailyTasks: context.derived.dailyTasks,
         bossInstructions: context.state.instructions.slice(0, 5),
         operations: context.operations,
       };
     case "proposals":
-      return {
-        mode,
-        pending,
-        all: context.state.proposals,
-        operations: context.operations,
-      };
+      return { mode, pending, all: context.state.proposals, operations: context.operations };
     case "competitors":
       return {
-        mode,
-        competitors: context.snapshot?.competitors ?? [],
-        notes: context.snapshot?.notes ?? [],
-        operations: context.operations,
+        mode, competitors: context.snapshot?.competitors ?? [],
+        notes: context.snapshot?.notes ?? [], operations: context.operations,
       };
     case "report":
     default:
       return {
-        mode: "report",
-        business: context.config.business,
-        health: context.derived.health,
-        generatedAt: context.derived.generatedAt,
-        budget: context.derived.budget,
-        alerts: context.derived.alerts,
+        mode: "report", business: context.config.business,
+        health: context.derived.health, generatedAt: context.derived.generatedAt,
+        budget: context.derived.budget, alerts: context.derived.alerts,
         pendingProposals: pending,
         topWinner: context.derived.winners[0]?.campaign,
         topRisk: context.derived.atRisk[0]?.campaign,
         dailyTasks: context.derived.dailyTasks,
-        operations: context.operations,
-        warnings: context.warnings,
+        operations: context.operations, warnings: context.warnings,
       };
   }
 }
 
+// ─── Ad format helper ─────────────────────────────────────────────────────────
+
+function daysRunning(startDate: string | undefined): string {
+  if (!startDate || startDate === "undefined") return "?";
+  try {
+    const ms = Date.now() - new Date(startDate).getTime();
+    const d = Math.floor(ms / 86400000);
+    return d >= 0 ? String(d) : "?";
+  } catch { return "?"; }
+}
+
+function formatAds(ads: AdLibraryResult[], source: string): string {
+  const lines = ads.map((ad, i) => {
+    const text = (ad.adText ?? "").slice(0, 300);
+    const days = daysRunning(ad.startDate);
+    const plat = Array.isArray(ad.platforms) && ad.platforms.length
+      ? ad.platforms.join(", ") : "unknown";
+    const cta = ad.ctaType && ad.ctaType !== "undefined" ? ` | CTA: ${ad.ctaType}` : "";
+    return (
+      `Ad ${i + 1} [${days} ngày | ${plat}${cta}]:\n` +
+      `  Hook: ${text || "(no text)"}\n` +
+      `  Bắt đầu: ${ad.startDate ?? "unknown"}` +
+      (ad.imageUrl ? `\n  Image: ${ad.imageUrl}` : "")
+    );
+  });
+  return `📊 [${source}] Found ${ads.length} active ads:\n\n${lines.join("\n\n")}`;
+}
+
+// ─── Resolve helper (called ONCE per request) ──────────────────────────────────
+
+async function resolvePageInfo(url: string, knownPageId?: string): Promise<{
+  pageId: string | undefined;
+  pageName: string | undefined;
+  method: string | undefined;
+}> {
+  // Already numeric — skip resolution
+  if (knownPageId && /^\d+$/.test(knownPageId)) {
+    // Try to get page name from Graph API
+    const token = process.env.META_ACCESS_TOKEN;
+    if (token) {
+      try {
+        const r = await httpFetch({
+          url: `https://graph.facebook.com/v25.0/${knownPageId}?fields=id,name&access_token=${token}`,
+          timeoutMs: 5000,
+        });
+        if (r.ok) {
+          const d = r.data as Record<string, unknown>;
+          return {
+            pageId: knownPageId,
+            pageName: typeof d.name === "string" ? d.name : undefined,
+            method: "graph_direct",
+          };
+        }
+      } catch { /* ok */ }
+    }
+    return { pageId: knownPageId, pageName: undefined, method: "numeric_input" };
+  }
+
+  // Resolve from URL
+  try {
+    const resolved = await resolvePageId(url);
+    if (resolved) {
+      return {
+        pageId: resolved.pageId,
+        pageName: resolved.pageName,
+        method: resolved.method,
+      };
+    }
+  } catch (err) {
+    console.log(`[tool] resolvePageInfo error: ${err}`);
+  }
+  return { pageId: undefined, pageName: undefined, method: undefined };
+}
+
+// ─── Main factory ─────────────────────────────────────────────────────────────
 
 export function createAdsManagerTool(params: {
   api: OpenClawPluginApi;
   pluginConfig: AdsManagerPluginConfig;
 }): AnyAgentTool[] {
+
+  // ── 1. ads_manager_brief ──────────────────────────────────────────────────
   const briefTool: AnyAgentTool = {
     name: "ads_manager_brief",
     label: "Ads Manager Brief",
-    description:
-      "Read-only ads assistant brief for reports, alerts, budget status, proposals, competitor notes, and live ops status.",
-    parameters: AdsManagerBriefSchema,
-    execute: async (_toolCallId, rawParams) => {
-      const toolParams = rawParams as AdsManagerBriefParams;
-      const mode = (toolParams.mode ?? "report") as BriefMode;
-      const context = await loadAssistantContext({
+    description: "Read-only brief. Call with mode matching the /command received.",
+    parameters: Type.Object(
+      { mode: Type.Optional(stringEnum(BRIEF_MODES, "View mode")) },
+      { additionalProperties: false },
+    ),
+    execute: async (_id, raw) => {
+      const mode = ((raw as any).mode ?? "report") as BriefMode;
+      const ctx = await loadAssistantContext({
         runtime: params.api.runtime,
         logger: params.api.logger,
         pluginConfig: params.pluginConfig,
       });
-      const payload = buildPayload(mode, context);
+      const payload = buildPayload(mode, ctx);
       return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(payload, null, 2),
-          },
-        ],
+        content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
         details: payload,
       };
     },
   };
 
-  const createProposalSchema = Type.Object({
-    title: Type.String({ description: "Short title of the proposal" }),
-    summary: Type.String({ description: "Brief summary of what to do" }),
-    reason: Type.String({ description: "Why this proposal is relevant" }),
-    impact: Type.String({ description: "Anticipated impact (high/medium/low)" }),
-    campaignId: Type.Optional(Type.String({ description: "Optional Meta Campaign ID" })),
-    commandHint: Type.Optional(Type.String({ description: "Optional CLI command hint for approval" })),
-  });
-
+  // ── 2. ads_manager_create_proposal ───────────────────────────────────────
   const createProposalTool: AnyAgentTool = {
     name: "ads_manager_create_proposal",
     label: "Create Ads Proposal",
-    description: "Create a new AI-driven proposal for the boss to review.",
-    parameters: createProposalSchema,
-    execute: async (_toolCallId, rawParams: any) => {
-      const context = await createProposal({
+    description: "Create a proposal for boss review. Required for budget changes >10%, pause/resume, new campaigns.",
+    parameters: Type.Object({
+      title: Type.String(),
+      summary: Type.String(),
+      reason: Type.String(),
+      impact: Type.String({ description: "high/medium/low" }),
+      campaignId: Type.Optional(Type.String()),
+      commandHint: Type.Optional(Type.String()),
+    }),
+    execute: async (_id, raw: any) => {
+      const ctx = await createProposal({
         runtime: params.api.runtime,
         logger: params.api.logger,
         pluginConfig: params.pluginConfig,
-        proposal: rawParams,
+        proposal: raw,
       });
+      const pending = ctx.state.proposals.filter((p) => p.status === "pending").length;
       return {
-        content: [{ type: "text", text: `Proposal created. Total pending: ${context.state.proposals.filter(p => p.status === 'pending').length}` }],
-        details: context.state.proposals[0],
+        content: [{ type: "text" as const, text: `Proposal created. Pending: ${pending}. → /pheduyet ${ctx.state.proposals[0]?.id}` }],
+        details: ctx.state.proposals[0],
       };
     },
   };
 
-  const executeActionSchema = Type.Object({
-    proposalId: Type.String({ description: "ID of the proposal to act upon" }),
-    status: stringEnum(["approved", "rejected"], "Target status for the proposal"),
-  });
-
+  // ── 3. ads_manager_execute_action ─────────────────────────────────────────
   const executeActionTool: AnyAgentTool = {
     name: "ads_manager_execute_action",
     label: "Execute Ads Action",
-    description: "Approve or reject a pending ads proposal. Approving may trigger live changes on Meta.",
-    parameters: executeActionSchema,
-    execute: async (_toolCallId, rawParams: any) => {
-      const context = await setProposalStatus({
+    description: "Approve or reject a pending proposal.",
+    parameters: Type.Object({
+      proposalId: Type.String(),
+      status: stringEnum(["approved", "rejected"], "New status"),
+    }),
+    execute: async (_id, raw: any) => {
+      const ctx = await setProposalStatus({
         runtime: params.api.runtime,
         logger: params.api.logger,
         pluginConfig: params.pluginConfig,
-        proposalId: rawParams.proposalId,
-        status: rawParams.status,
+        proposalId: raw.proposalId,
+        status: raw.status,
       });
       return {
-        content: [{ type: "text", text: `Proposal ${rawParams.proposalId} status set to ${rawParams.status}.` }],
-        details: context.state.proposals.find(p => p.id === rawParams.proposalId),
+        content: [{ type: "text" as const, text: `Proposal ${raw.proposalId} → ${raw.status}.` }],
+        details: ctx.state.proposals.find((p) => p.id === raw.proposalId),
       };
     },
   };
 
-  const ackInstructionSchema = Type.Object({
-    instructionId: Type.String({ description: "ID of the boss instruction to acknowledge" }),
-  });
-
+  // ── 4. ads_manager_ack_instruction ───────────────────────────────────────
   const ackInstructionTool: AnyAgentTool = {
     name: "ads_manager_ack_instruction",
     label: "Acknowledge Boss Instruction",
-    description: "Mark a boss instruction as acknowledged after you have analyzed or acted upon it.",
-    parameters: ackInstructionSchema,
-    execute: async (_toolCallId, rawParams: any) => {
-      const context = await acknowledgeInstruction({
+    description: "Mark a boss instruction as acknowledged.",
+    parameters: Type.Object({ instructionId: Type.String() }),
+    execute: async (_id, raw: any) => {
+      const ctx = await acknowledgeInstruction({
         runtime: params.api.runtime,
         logger: params.api.logger,
         pluginConfig: params.pluginConfig,
-        instructionId: rawParams.instructionId,
+        instructionId: raw.instructionId,
       });
       return {
-        content: [{ type: "text", text: `Instruction ${rawParams.instructionId} marked as acknowledged.` }],
-        details: context.state.instructions.find(i => i.id === rawParams.instructionId),
+        content: [{ type: "text" as const, text: `Instruction ${raw.instructionId} → acknowledged.` }],
+        details: ctx.state.instructions.find((i) => i.id === raw.instructionId),
       };
     },
   };
 
+  // ── 5. ads_manager_search ─────────────────────────────────────────────────
   const searchTool: AnyAgentTool = {
     name: "ads_manager_search",
-    label: "Professional Web Search",
-    description: "Perform a professional web search for competitor fanpages, industry trends, and market intelligence.",
+    label: "Professional Web Search (via config)",
+    description: "Web search via intelligence.search config. Use serper_search for direct access.",
     parameters: Type.Object({
-      query: Type.String({ description: "Search query" }),
-      limit: Type.Optional(Type.Number({ description: "Number of results to return", default: 5 })),
+      query: Type.String(),
+      limit: Type.Optional(Type.Number({ default: 5 })),
     }),
-    execute: async (_toolCallId, rawParams: any) => {
+    execute: async (_id, raw: any) => {
       const results = await performWebSearch({
         config: params.pluginConfig,
-        query: rawParams.query,
-        limit: rawParams.limit,
+        query: raw.query,
+        limit: raw.limit,
       });
       return {
-        content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
+        content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }],
         details: results,
       };
     },
   };
 
+  // ── 6. ads_manager_scrape ─────────────────────────────────────────────────
   const scrapeTool: AnyAgentTool = {
     name: "ads_manager_scrape",
     label: "Professional Scraper",
-    description: "Scrape content from a competitor fanpage or landing page for deep analysis.",
-    parameters: Type.Object({
-      url: Type.String({ description: "URL to scrape" }),
-    }),
-    execute: async (_toolCallId, rawParams: any) => {
-      const result = await scrapePage({
-        config: params.pluginConfig,
-        url: rawParams.url,
-      });
+    description: "Scrape a URL via Playwright or fetch. Requires intelligence.scrape.enabled=true.",
+    parameters: Type.Object({ url: Type.String() }),
+    execute: async (_id, raw: any) => {
+      const result = await scrapePage({ config: params.pluginConfig, url: raw.url });
       return {
-        content: [{ type: "text", text: `Scraped: ${result.title}\n\n${result.content.slice(0, 1000)}...` }],
+        content: [{ type: "text" as const, text: `${result.title}\n\n${result.content.slice(0, 2000)}` }],
         details: result,
       };
     },
   };
 
+  // ── 7. ads_manager_analyze_ads ────────────────────────────────────────────
   const analyzeAdsTool: AnyAgentTool = {
     name: "ads_manager_analyze_ads",
-    label: "Professional Ad Analyzer (Apify)",
-    description: "Deeply analyze all active ads of a competitor from Facebook Ad Library using Apify. Returns ad text, images, videos, and start dates.",
+    label: "Professional Ad Analyzer (Apify via config)",
+    description: "Analyze competitor ads via Apify config. Use apify_facebook_ads for direct access.",
     parameters: Type.Object({
-      url: Type.String({ description: "Facebook Page URL or Ad Library URL" }),
-      limit: Type.Optional(Type.Number({ description: "Number of ads to analyze", default: 10 })),
+      url: Type.String(),
+      limit: Type.Optional(Type.Number({ default: 10 })),
     }),
-    execute: async (_toolCallId, rawParams: any) => {
+    execute: async (_id, raw: any) => {
       const results = await analyzeCompetitorAdsWithApify({
         config: params.pluginConfig,
-        url: rawParams.url,
-        limit: rawParams.limit,
+        url: raw.url,
+        limit: raw.limit,
       });
       return {
-        content: [{ type: "text", text: `Found ${results.length} active ads for this competitor.` }],
+        content: [{ type: "text" as const, text: `Found ${results.length} ads.` }],
         details: results,
       };
     },
   };
 
+  // ── 8. ads_manager_save_competitor ───────────────────────────────────────
   const saveCompetitorTool: AnyAgentTool = {
     name: "ads_manager_save_competitor",
     label: "Save Competitor to Memory",
-    description: "Save insights about a competitor (ad strategy, landing page info, etc.) to your long-term memory for future reference.",
+    description: "Save competitor insights. ALWAYS call after any competitor analysis.",
     parameters: Type.Object({
-      name: Type.String({ description: "Competitor name" }),
-      angle: Type.String({ description: "Key advertising angle or offer observed" }),
-      note: Type.Optional(Type.String({ description: "Additional notes" })),
-      sourceUrl: Type.Optional(Type.String({ description: "URL where the competitor was found" })),
+      name: Type.String({ description: "Competitor page name" }),
+      angle: Type.String({ description: "Dominant angle or 'no ads found [date]'" }),
+      note: Type.Optional(Type.String()),
+      sourceUrl: Type.Optional(Type.String()),
     }),
-    execute: async (_toolCallId, rawParams: any) => {
+    execute: async (_id, raw: any) => {
       await appendCompetitorInsight({
         runtime: params.api.runtime,
         logger: params.api.logger,
         pluginConfig: params.pluginConfig,
         competitor: {
-          name: rawParams.name,
-          angle: rawParams.angle,
-          note: rawParams.note,
-          sourceUrl: rawParams.sourceUrl,
+          name: raw.name,
+          angle: raw.angle,
+          note: raw.note,
+          sourceUrl: raw.sourceUrl,
         },
       });
       return {
-        content: [{ type: "text", text: `Saved competitor "${rawParams.name}" to memory.` }],
-        details: { success: true, name: rawParams.name },
+        content: [{ type: "text" as const, text: `Saved "${raw.name}" to memory.` }],
+        details: { success: true, name: raw.name },
       };
     },
   };
 
-  // ─── New Autonomous API Tools ─────────────────────────────────────────────
-
-  /**
-   * Generic HTTP request tool — lets the AI call ANY external API directly.
-   * This eliminates the "I don't have access" problem for REST APIs.
-   */
+  // ── 9. http_request ───────────────────────────────────────────────────────
   const httpRequestTool: AnyAgentTool = {
     name: "http_request",
     label: "HTTP API Request",
-    description:
-      "Make a direct HTTP request to any external API or URL and return the response. Auth and keys are handled automatically by the system. You just provide the URL.",
+    description: "Direct HTTP request to any REST API.",
     parameters: Type.Object({
-      url: Type.String({ description: "Full URL to request including query parameters" }),
-      method: Type.Optional(Type.String({ description: "HTTP method: GET, POST, PUT, DELETE (default: GET)" })),
-      headers: Type.Optional(Type.String({ description: "Request headers as JSON string" })),
-      body: Type.Optional(Type.String({ description: "Request body (will be sent as is)" })),
+      url: Type.String(),
+      method: Type.Optional(Type.String()),
+      headers: Type.Optional(Type.String({ description: "JSON string" })),
+      body: Type.Optional(Type.String()),
     }),
-    execute: async (_toolCallId, rawParams: any) => {
-      let headersObj = {};
-      if (rawParams.headers) {
-        try { headersObj = JSON.parse(rawParams.headers); } catch { /* ignore */ }
-      }
+    execute: async (_id, raw: any) => {
+      let headersObj: Record<string, string> = {};
+      if (raw.headers) { try { headersObj = JSON.parse(raw.headers); } catch { /* ok */ } }
       const result = await httpFetch({
-        url: rawParams.url,
-        method: rawParams.method ?? "GET",
+        url: raw.url,
+        method: raw.method ?? "GET",
         headers: headersObj,
-        body: rawParams.body,
+        body: raw.body,
       });
+      const bodyText = typeof result.data === "string"
+        ? result.data : JSON.stringify(result.data, null, 2);
       return {
         content: [{
           type: "text" as const,
           text: result.ok
-            ? `✅ ${rawParams.method ?? "GET"} ${rawParams.url}\nStatus: ${result.status} ${result.statusText}\n\n${typeof result.data === "string" ? result.data : JSON.stringify(result.data, null, 2)}`.slice(0, 8000)
-            : `❌ Request failed: ${result.status} ${result.statusText}\nError: ${result.error ?? result.rawText.slice(0, 500)}`,
+            ? `✅ ${result.status}\n\n${bodyText}`.slice(0, 8000)
+            : `❌ ${result.status} ${result.statusText}\n${result.error ?? bodyText.slice(0, 500)}`,
         }],
         details: result,
       };
     },
   };
 
-  /**
-   * Direct Serper Google Search — always uses SERPER_API_KEY from env.
-   * More powerful than ads_manager_search: supports news and image search.
-   */
+  // ── 10. serper_search ─────────────────────────────────────────────────────
   const serperSearchTool: AnyAgentTool = {
     name: "serper_search",
     label: "Google Search (Serper Direct)",
-    description:
-      "Search Google directly using Serper. Auth is handled automatically by the system. You DO NOT need an API key. Supports web, news, and image searches. Use this to find competitor information or industry news.",
+    description: "Search Google via Serper. SERPER_API_KEY auto-read from env. type: search|news|images.",
     parameters: Type.Object({
-      query: Type.String({ description: "Search query" }),
-      type: Type.Optional(Type.String({ description: "Search type: search (default), news, images" })),
-      limit: Type.Optional(Type.Number({ description: "Number of results to return (default: 10)" })),
+      query: Type.String(),
+      type: Type.Optional(Type.String({ description: "search | news | images" })),
+      limit: Type.Optional(Type.Number()),
     }),
-    execute: async (_toolCallId, rawParams: any) => {
+    execute: async (_id, raw: any) => {
       const results = await serperSearch({
-        query: rawParams.query,
-        type: rawParams.type,
-        limit: rawParams.limit ?? 10,
+        query: raw.query,
+        type: raw.type,
+        limit: raw.limit ?? 10,
       });
+      const text = `🔍 "${raw.query}":\n\n` +
+        results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.link}\n   ${r.snippet}`).join("\n\n");
       return {
-        content: [{
-          type: "text" as const,
-          text: `🔍 Search results for "${rawParams.query}":\n\n` +
-            results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.link}\n   ${r.snippet}`).join("\n\n"),
-        }],
+        content: [{ type: "text" as const, text }],
         details: results,
       };
     },
   };
 
-  /**
-   * Direct Facebook Ad Library API call.
-   * Uses public Meta Graph API to fetch active ads for a competitor page.
-   */
+  // ── 11. meta_ad_library — FIXED: resolve ONCE, no triple-call ────────────
   const metaAdLibraryTool: AnyAgentTool = {
     name: "meta_ad_library",
-    label: "Facebook Ad Library (Direct API)",
+    label: "Facebook Ad Library Analyzer",
     description:
-      "Fetch active ads directly from the Facebook Ad Library API. Auth is fully automatic, you DO NOT need a token. Provide a Facebook page URL or page ID. Returns ad copy, dates, platforms, and impressions. Just call the tool.",
+      "Phân tích ads Facebook competitor. " +
+      "Meta Graph API không hỗ trợ VN commercial ads → tool dùng Apify scrape Ad Library website. " +
+      "Nhận pageUrl hoặc pageId. Tự động resolve và scrape. " +
+      "Tất cả credentials đọc từ env.",
     parameters: Type.Object({
-      pageUrl: Type.Optional(Type.String({ description: "Full Facebook page URL (e.g. https://www.facebook.com/taxprovietnam)" })),
-      pageId: Type.Optional(Type.String({ description: "Facebook Page ID (numeric or username)" })),
-      country: Type.Optional(Type.String({ description: "2-letter country code (default: VN)" })),
-      limit: Type.Optional(Type.Number({ description: "Max number of ads to return (default: 20)" })),
+      pageUrl: Type.Optional(Type.String({ description: "Facebook page URL" })),
+      pageId: Type.Optional(Type.String({ description: "Numeric page ID (nếu đã biết)" })),
+      country: Type.Optional(Type.String({ description: "default: VN" })),
+      limit: Type.Optional(Type.Number({ description: "default: 20" })),
     }),
-    execute: async (_toolCallId, rawParams: any) => {
-      const ads = await fetchFacebookAdLibrary({
-        pageUrl: rawParams.pageUrl,
-        pageId: rawParams.pageId,
-        country: rawParams.country ?? "VN",
-        limit: rawParams.limit ?? 20,
-      });
-      if (ads.length === 0) {
+    execute: async (_id, raw: any) => {
+      const country = raw.country ?? "VN";
+      const limit = raw.limit ?? 20;
+      const originalUrl = raw.pageUrl
+        ?? (raw.pageId ? `https://www.facebook.com/${raw.pageId}` : "");
+
+      if (!originalUrl) {
         return {
-          content: [{ type: "text" as const, text: "No active ads found for this page in the Ad Library. The page may not be running ads currently, or it is not visible in the public library." }],
-          details: { ads: [], count: 0 },
+          content: [{ type: "text" as const, text: "❌ Cần cung cấp pageUrl hoặc pageId." }],
+          details: { ads: [], count: 0, source: "none" },
         };
       }
-      const summary = ads.map((ad: any, i: number) =>
-        `Ad ${i + 1}: ${(ad.adText ?? "No text").slice(0, 200)}\n  From: ${ad.startDate ?? "unknown date"}\n  Platforms: ${Array.isArray(ad.platforms) ? ad.platforms.join(", ") : "unknown"}`,
-      );
+
+      // ── STEP 1: Resolve page info ONCE ───────────────────────────────────
+      const pageInfo = await resolvePageInfo(originalUrl, raw.pageId);
+      const { pageId: resolvedPageId, pageName: resolvedPageName, method: resolveMethod } = pageInfo;
+
+      const slug = resolvedPageId ?? extractPageSlugFromUrl(originalUrl) ?? "unknown";
+      console.log(`[meta_ad_library tool] Resolved: pageId=${resolvedPageId} pageName="${resolvedPageName}" method=${resolveMethod}`);
+
+      // ── STEP 2: Try Graph API (EU/political, VN thường 0) ─────────────────
+      const token = process.env.META_ACCESS_TOKEN;
+      let graphAds: AdLibraryResult[] = [];
+
+      if (token) {
+        const searchName = resolvedPageName ?? slug;
+        const graphUrl = new URL(`https://graph.facebook.com/v25.0/ads_archive`);
+        graphUrl.searchParams.set("ad_reached_countries", JSON.stringify([country]));
+        graphUrl.searchParams.set("ad_active_status", "ALL");
+        graphUrl.searchParams.set("ad_type", "ALL");
+        graphUrl.searchParams.set("fields", "id,page_id,page_name,ad_creative_bodies,ad_delivery_start_time,publisher_platforms");
+        graphUrl.searchParams.set("limit", String(limit));
+        graphUrl.searchParams.set("search_terms", searchName);
+        if (resolvedPageId) graphUrl.searchParams.set("search_page_ids", resolvedPageId);
+        graphUrl.searchParams.set("access_token", token);
+
+        console.log(`[meta_ad_library tool] Graph API search_terms="${searchName}"`);
+        const gr = await httpFetch({ url: graphUrl.toString(), timeoutMs: 20000 });
+        if (gr.ok) {
+          const data = ((gr.data as Record<string, unknown>).data ?? []) as Record<string, unknown>[];
+          graphAds = data.map(ad => ({
+            id: String(ad.id ?? ""),
+            pageId: String(ad.page_id ?? ""),
+            pageName: String(ad.page_name ?? ""),
+            adText: Array.isArray(ad.ad_creative_bodies)
+              ? (ad.ad_creative_bodies as string[]).join(" | ") : "",
+            status: "ACTIVE",
+            startDate: typeof ad.ad_delivery_start_time === "string"
+              ? ad.ad_delivery_start_time : undefined,
+            platforms: Array.isArray(ad.publisher_platforms)
+              ? (ad.publisher_platforms as string[]) : [],
+          }));
+          console.log(`[meta_ad_library tool] Graph API returned ${graphAds.length} ads`);
+        } else {
+          const code = ((gr.data as Record<string, unknown>)?.error as Record<string, unknown>)?.code;
+          console.log(`[meta_ad_library tool] Graph API failed: code=${code} status=${gr.status}`);
+        }
+      }
+
+      if (graphAds.length > 0) {
+        return {
+          content: [{ type: "text" as const, text: formatAds(graphAds, "Meta Graph API") }],
+          details: { ads: graphAds, count: graphAds.length, source: "meta_graph_api", resolvedPageId, resolvedPageName },
+        };
+      }
+
+      // ── STEP 3: Apify (PRIMARY for VN) ────────────────────────────────────
+      console.log(`[meta_ad_library tool] Graph API 0 → Apify primary for VN`);
+
+      const apifyToken = process.env.APIFY_TOKEN;
+      if (!apifyToken) {
+        const manualUrl = resolvedPageId
+          ? buildAdLibraryUrl(resolvedPageId, "ALL")
+          : `https://www.facebook.com/ads/library/?search_type=page&q=${encodeURIComponent(slug)}`;
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `ℹ️ Meta Graph API không trả VN commercial ads (giới hạn Meta).`,
+              `APIFY_TOKEN chưa cấu hình.`,
+              resolvedPageId ? `Page ID: ${resolvedPageId} (${resolvedPageName ?? "unknown"})` : "",
+              `Xem thủ công: ${manualUrl}`,
+            ].filter(Boolean).join("\n"),
+          }],
+          details: { ads: [], count: 0, source: "none", resolvedPageId, resolvedPageName },
+        };
+      }
+
+      let apifyAds: AdLibraryResult[] = [];
+      try {
+        apifyAds = await apifyFacebookAdsScraper({
+          url: originalUrl,
+          pageId: resolvedPageId,
+          pageName: resolvedPageName, // safe — guard inside apifyFacebookAdsScraper
+          limit,
+        });
+      } catch (err) {
+        console.log(`[meta_ad_library tool] Apify error: ${err}`);
+      }
+
+      if (apifyAds.length > 0) {
+        return {
+          content: [{ type: "text" as const, text: formatAds(apifyAds, "Apify Ad Library Scraper") }],
+          details: { ads: apifyAds, count: apifyAds.length, source: "apify", resolvedPageId, resolvedPageName },
+        };
+      }
+
+      // ── STEP 4: Both failed ───────────────────────────────────────────────
+      const manualSearchUrl = resolvedPageName
+        ? `https://www.facebook.com/ads/library/?search_type=keyword_unordered&q=${encodeURIComponent(resolvedPageName)}`
+        : resolvedPageId
+          ? buildAdLibraryUrl(resolvedPageId, "ALL")
+          : `https://www.facebook.com/ads/library/?search_type=page&q=${encodeURIComponent(slug)}`;
+
       return {
         content: [{
           type: "text" as const,
-          text: `📊 Found ${ads.length} active ads:\n\n${summary.join("\n\n")}`,
+          text: [
+            `⚠️ Không lấy được ads tự động cho "${resolvedPageName ?? slug}".`,
+            ``,
+            `Đã thử: Meta Graph API (VN không hỗ trợ) + Apify (actors chưa index hoặc rate limit)`,
+            ``,
+            resolvedPageId
+              ? `Page ID: ${resolvedPageId} (${resolvedPageName ?? "unknown"}) — via ${resolveMethod}`
+              : `Page ID chưa resolve được từ URL này`,
+            ``,
+            `Xem ads thủ công:`,
+            `  ${manualSearchUrl}`,
+            ``,
+            `Nếu thấy ads → copy URL đầy đủ (có view_all_page_id) và dán cho tôi`,
+            `hoặc gọi: apify_facebook_ads(url:"<Ad Library URL>", pageName:"${resolvedPageName ?? slug}")`,
+          ].filter(Boolean).join("\n"),
         }],
+        details: {
+          ads: [], count: 0, source: "none",
+          resolvedPageId, resolvedPageName, resolveMethod,
+          manualUrl: manualSearchUrl,
+        },
+      };
+    },
+  };
+
+  // ── 12. apify_facebook_ads ────────────────────────────────────────────────
+  const apifyScraperTool: AnyAgentTool = {
+    name: "apify_facebook_ads",
+    label: "Apify Ad Library Scraper (Direct)",
+    description:
+      "Scrape Facebook Ad Library website via Apify. APIFY_TOKEN auto-read. " +
+      "Dùng Ad Library URL với view_all_page_id cho kết quả tốt nhất. " +
+      "Truyền pageName nếu biết (dùng cho keyword search actors).",
+    parameters: Type.Object({
+      url: Type.String({ description: "Ad Library URL (với view_all_page_id) HOẶC Facebook page URL" }),
+      pageId: Type.Optional(Type.String({ description: "Numeric page ID nếu biết" })),
+      pageName: Type.Optional(Type.String({ description: "Tên page nếu biết (quan trọng cho search)" })),
+      limit: Type.Optional(Type.Number({ description: "Max ads (default: 20)" })),
+    }),
+    execute: async (_id, raw: any) => {
+      // Safe guard pageName
+      const safePageName = raw.pageName && raw.pageName !== "undefined"
+        ? raw.pageName : undefined;
+
+      const ads = await apifyFacebookAdsScraper({
+        url: raw.url,
+        pageId: raw.pageId,
+        pageName: safePageName,
+        limit: raw.limit ?? 20,
+      });
+
+      if (ads.length === 0) {
+        const hint = raw.pageId
+          ? `\n→ Thử: ${buildAdLibraryUrl(raw.pageId, "ALL")}`
+          : "";
+        return {
+          content: [{ type: "text" as const, text: `Apify returned 0 ads.${hint}` }],
+          details: { ads: [], count: 0 },
+        };
+      }
+      return {
+        content: [{ type: "text" as const, text: formatAds(ads, "Apify Direct") }],
         details: { ads, count: ads.length },
       };
     },
   };
 
-  /**
-   * Direct Apify Facebook Ads Scraper — always uses APIFY_TOKEN from env.
-   * More reliable than meta_ad_library for deep ad content extraction.
-   */
-  const apifyScraperTool: AnyAgentTool = {
-    name: "apify_facebook_ads",
-    label: "Apify Facebook Ads Deep Scraper",
+  // ── 13. resolve_facebook_page_id ─────────────────────────────────────────
+  const resolvePageIdTool: AnyAgentTool = {
+    name: "resolve_facebook_page_id",
+    label: "Resolve Facebook Page ID",
     description:
-      "Deeply scrape Facebook Ads for ANY competitor page using Apify. Auth is fully automatic, the system already has the token. You DO NOT need to ask the user for a token. Just provide the URL and call the tool.",
+      "Resolve Facebook page URL → numeric Page ID + Page Name. " +
+      "ALWAYS call trước meta_ad_library khi có URL như facebook.com/visioedu. " +
+      "Trả về pageId + pageName (cả 2 đều cần cho phân tích VN market).",
     parameters: Type.Object({
-      url: Type.String({ description: "Facebook page URL or Ad Library URL to analyze" }),
-      limit: Type.Optional(Type.Number({ description: "Max number of ads to retrieve (default: 15)" })),
+      url: Type.String({ description: "Facebook page URL hoặc username" }),
     }),
-    execute: async (_toolCallId, rawParams: any) => {
-      const ads = await apifyFacebookAdsScraper({
-        url: rawParams.url,
-        limit: rawParams.limit ?? 15,
-      });
-      if (ads.length === 0) {
+    execute: async (_id, raw: any) => {
+      const inputUrl = raw.url as string;
+      const url = inputUrl.startsWith("http")
+        ? inputUrl
+        : `https://www.facebook.com/${inputUrl.replace(/^@/, "")}`;
+      const slug = extractPageSlugFromUrl(url);
+
+      if (slug && /^\d+$/.test(slug)) {
         return {
-          content: [{ type: "text" as const, text: "Apify returned no ads for this URL. The page may not be running ads, or try a different URL format." }],
-          details: { ads: [], count: 0 },
+          content: [{ type: "text" as const, text: `✅ Already numeric: ${slug}\n→ meta_ad_library(pageId: "${slug}")` }],
+          details: { resolved: true, pageId: slug, method: "numeric_url", adLibraryUrl: buildAdLibraryUrl(slug, "ALL") },
         };
       }
-      const summary = ads.map((ad: any, i: number) =>
-        `Ad ${i + 1}: ${(ad.adText ?? "No text").slice(0, 300)}\n  Page: ${ad.pageName}\n  Start: ${ad.startDate}\n  Image: ${ad.imageUrl ?? "none"}`,
-      );
+
+      let result: Awaited<ReturnType<typeof resolvePageId>> = null;
+      try { result = await resolvePageId(url); } catch (err) {
+        return {
+          content: [{ type: "text" as const, text: `❌ Error: ${err}` }],
+          details: { error: String(err), resolved: false },
+        };
+      }
+
+      if (!result) {
+        const searchUrl = `https://www.facebook.com/ads/library/?search_type=page&q=${encodeURIComponent(slug ?? inputUrl)}`;
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `⚠️ Không resolve được Page ID cho "${slug ?? inputUrl}".`,
+              `Tìm thủ công: ${searchUrl}`,
+              `→ Click vào page → copy view_all_page_id từ URL`,
+              `→ meta_ad_library(pageId:"NUMERIC_ID")`,
+            ].join("\n"),
+          }],
+          details: { resolved: false, slug, url },
+        };
+      }
+
+      const adLibUrl = buildAdLibraryUrl(result.pageId, "ALL");
       return {
         content: [{
           type: "text" as const,
-          text: `🎯 Apify found ${ads.length} ads:\n\n${summary.join("\n\n")}`,
+          text: [
+            `✅ Resolved!`,
+            `Page ID: ${result.pageId}`,
+            `Page Name: ${result.pageName ?? "unknown"}`,
+            `Method: ${result.method}`,
+            ``,
+            `→ meta_ad_library(pageId: "${result.pageId}", country: "VN")`,
+            `→ Ad Library URL: ${adLibUrl}`,
+          ].join("\n"),
         }],
-        details: { ads, count: ads.length },
+        details: {
+          resolved: true,
+          pageId: result.pageId,
+          pageName: result.pageName,
+          method: result.method,
+          slug, url, adLibraryUrl: adLibUrl,
+        },
       };
     },
   };
 
   return [
-    briefTool,
-    createProposalTool,
-    executeActionTool,
-    ackInstructionTool,
-    searchTool,
-    scrapeTool,
-    analyzeAdsTool,
-    saveCompetitorTool,
-    // New autonomous tools
-    httpRequestTool,
-    serperSearchTool,
-    metaAdLibraryTool,
-    apifyScraperTool,
+    briefTool,           // 1
+    createProposalTool,  // 2
+    executeActionTool,   // 3
+    ackInstructionTool,  // 4
+    searchTool,          // 5
+    scrapeTool,          // 6
+    analyzeAdsTool,      // 7
+    saveCompetitorTool,  // 8
+    httpRequestTool,     // 9
+    serperSearchTool,    // 10
+    metaAdLibraryTool,   // 11
+    apifyScraperTool,    // 12
+    resolvePageIdTool,   // 13
   ];
 }
