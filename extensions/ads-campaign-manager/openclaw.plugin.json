@@ -67,69 +67,32 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "minCtr": {
-            "type": "number",
-            "minimum": 0
-          },
-          "maxCpa": {
-            "type": "number",
-            "minimum": 0
-          },
-          "minRoas": {
-            "type": "number",
-            "minimum": 0
-          },
-          "scaleRoas": {
-            "type": "number",
-            "minimum": 0
-          },
-          "minSpendForDecision": {
-            "type": "number",
-            "minimum": 0
-          },
-          "budgetPacingTolerance": {
-            "type": "number",
-            "minimum": 1,
-            "maximum": 3
-          }
+          "minCtr": { "type": "number", "minimum": 0 },
+          "maxCpa": { "type": "number", "minimum": 0 },
+          "minRoas": { "type": "number", "minimum": 0 },
+          "scaleRoas": { "type": "number", "minimum": 0 },
+          "minSpendForDecision": { "type": "number", "minimum": 0 },
+          "budgetPacingTolerance": { "type": "number", "minimum": 1, "maximum": 3 }
         }
       },
       "telegram": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "showDashboardButtons": {
-            "type": "boolean"
-          },
-          "maxProposalButtons": {
-            "type": "number",
-            "minimum": 1,
-            "maximum": 6
-          }
+          "showDashboardButtons": { "type": "boolean" },
+          "maxProposalButtons": { "type": "number", "minimum": 1, "maximum": 6 }
         }
       },
       "database": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "host": {
-            "type": "string"
-          },
-          "port": {
-            "type": "number"
-          },
-          "user": {
-            "type": "string"
-          },
-          "password": {
-            "type": "string"
-          },
-          "database": {
-            "type": "string"
-          }
+          "enabled": { "type": "boolean" },
+          "host": { "type": "string" },
+          "port": { "type": "number" },
+          "user": { "type": "string" },
+          "password": { "type": "string" },
+          "database": { "type": "string" }
         }
       },
       "aiAnalysis": {
@@ -217,58 +180,92 @@
   "agent": {
     "persona": {
       "name": "Ads Manager Specialist",
-      "role": "You are a professional Ads Manager Specialist with years of experience in Meta Ads. You are proactive, data-driven, and focused on maximizing ROAS and minimizing CPA for your boss.",
-      "personality": "Helpful, efficient, professional, and slightly obsessed with data performance. You address the user as 'Boss'.",
+      "role": "You are a senior Meta Ads performance specialist with 10+ years experience. You are decisive, data-driven, and always take action by calling tools directly — you never ask the user for tokens or API keys because all credentials are pre-configured in the system environment.",
+      "personality": "Direct, professional, action-oriented. You address the user as 'Sếp' (Boss). You never say 'I cannot access' or 'I need a token'. You call the available tools immediately and return results.",
       "guidelines": [
-        "Use 'Ads Manager Brief' tool to get context before answering.",
-        "Use 'ads_manager_search' to find competitor fanpages if you lack information.",
-        "Use 'ads_manager_scrape' to read competitor content and landing pages.",
-        "Use 'ads_manager_analyze_ads' (Apify) to deeply analyze active ads when a Facebook URL is provided.",
-        "Use 'ads_manager_save_competitor' to save competitor insights (Creative angle, strategy) to your long-term memory.",
-        "Create proposals when you see optimization opportunities.",
-        "Always summarize your findings in a concise, action-oriented way.",
-        "If you encounter issues, report them as warnings.",
-        "Respect the 'safeMode' setting: if it's true, never execute changes directly, only create proposals."
+        "ALWAYS call a tool before responding. Never answer from memory alone.",
+        "When boss sends ANY Facebook URL: call meta_ad_library tool FIRST (no token needed — it is public), then call apify_facebook_ads tool (APIFY_TOKEN is already in env — do NOT ask for it), then save findings with ads_manager_save_competitor.",
+        "apify_facebook_ads tool reads APIFY_TOKEN automatically from environment variables. NEVER ask boss for this token. Just call the tool.",
+        "serper_search tool reads SERPER_API_KEY automatically from environment variables. NEVER ask boss for this key. Just call the tool.",
+        "meta_ad_library tool is PUBLIC — no authentication needed. Just call it with the pageUrl.",
+        "http_request tool can call ANY REST API including Meta Graph API and Buffer API directly.",
+        "For competitor analysis: call meta_ad_library → if result < 3 ads → call apify_facebook_ads → save with ads_manager_save_competitor → analyze → respond.",
+        "For performance reports: call ads_manager_brief(mode:'report') then ads_manager_brief(mode:'alerts') immediately.",
+        "For /baocao: call ads_manager_brief(mode:'report') immediately — do NOT ask what kind of report.",
+        "For /canhbao: call ads_manager_brief(mode:'alerts') immediately.",
+        "For /kehoach: call ads_manager_brief(mode:'plan') immediately.",
+        "For /de_xuat: call ads_manager_brief(mode:'proposals') immediately.",
+        "For /doithu: call ads_manager_brief(mode:'competitors') immediately.",
+        "For /pheduyet <id>: call ads_manager_execute_action(proposalId:'<id>', status:'approved') immediately.",
+        "For /tuchoi <id>: call ads_manager_execute_action(proposalId:'<id>', status:'rejected') immediately.",
+        "Create proposals for any budget change > 10%, campaign pause/resume, or new campaign.",
+        "Respect safeMode: if true, create proposals only — do not execute Meta writes directly.",
+        "NEVER say: 'Tôi không thể truy cập', 'Tôi cần token', 'Bạn muốn báo cáo gì?', 'Để tiến nhanh chọn A hoặc B'.",
+        "Format currency as: 250,000đ. Format date as: 21/03/2026. Address boss as Sếp."
       ]
     },
     "routing": {
       "intentions": [
         {
           "id": "ads_report",
-          "description": "User wants an ads performance report, overview, or status check.",
+          "description": "User wants an ads performance report, overview, alerts, budget, or status check. Trigger: /baocao, /tongquan, /canhbao, /ngansach, báo cáo, tình hình, hiệu suất, ROAS, CPA, CTR.",
           "examples": [
+            "/baocao",
+            "/tongquan",
+            "/canhbao",
             "Lấy báo cáo cho tôi",
             "Tình hình campaign hôm nay thế nào?",
             "ROAS hiện tại là bao nhiêu?",
-            "Có cảnh báo nào không em?"
-          ]
-        },
-        {
-          "id": "ads_proposal",
-          "description": "User wants to create a proposal, optimize, or change campaigns.",
-          "examples": [
-            "Tạo đề xuất tắt chiến dịch có CPA cao",
-            "Tối ưu ngân sách cho anh",
-            "Hôm nay nên làm gì để tăng doanh thu?"
-          ]
-        },
-        {
-          "id": "ads_instruction",
-          "description": "User is giving a direct instruction or feedback to the assistant.",
-          "examples": [
-            "Anh muốn em theo dõi sát chiến dịch X",
-            "OK thực hiện đi em",
-            "Dừng báo cáo này lại"
+            "Có cảnh báo nào không?",
+            "Ngân sách hôm nay thế nào?",
+            "Sao hôm nay ế thế?"
           ]
         },
         {
           "id": "ads_competitor_analysis",
-          "description": "User wants to analyze a competitor, search for fanpages, or scrape ad data.",
+          "description": "User wants to analyze a competitor page, search for fanpages, or scrape ad data. ALWAYS call meta_ad_library then apify_facebook_ads directly — never ask for tokens.",
           "examples": [
+            "Phân tích đối thủ: https://www.facebook.com/taxprovietnam",
             "Phân tích quảng cáo của https://www.facebook.com/taxprovietnam",
-            "Tìm đối thủ ngành kế toán cho anh",
-            "Cào dữ liệu trang này đi em",
-            "Thám thính đối thủ X"
+            "Tìm đối thủ ngành kế toán",
+            "Đối thủ X đang chạy gì?",
+            "Thám thính đối thủ",
+            "Cào dữ liệu trang này",
+            "/doithu"
+          ]
+        },
+        {
+          "id": "ads_proposal",
+          "description": "User wants to create a proposal, optimize campaigns, approve or reject existing proposals.",
+          "examples": [
+            "Tạo đề xuất tắt chiến dịch có CPA cao",
+            "Tối ưu ngân sách cho tôi",
+            "Hôm nay nên làm gì?",
+            "/de_xuat",
+            "/pheduyet tangngansach_abc",
+            "/tuchoi giamngansach_xyz"
+          ]
+        },
+        {
+          "id": "ads_content",
+          "description": "User wants to write, create, schedule, or publish content to a Facebook fanpage.",
+          "examples": [
+            "Viết content quảng cáo cho tôi",
+            "Đăng bài lên page",
+            "Lên lịch bài đăng tuần này",
+            "Tạo nội dung SEO cho fanpage",
+            "Lên content cho hôm nay"
+          ]
+        },
+        {
+          "id": "ads_instruction",
+          "description": "User is giving a direct instruction, daily plan request, or feedback.",
+          "examples": [
+            "/kehoach",
+            "Hôm nay làm gì?",
+            "Anh muốn theo dõi chiến dịch X",
+            "/lenh theo dõi CTR ngày",
+            "OK thực hiện đi"
           ]
         }
       ]
