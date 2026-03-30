@@ -80,17 +80,21 @@ export type AdsManagerPluginConfig = {
   intelligence?: {
     search?: {
       enabled: boolean;
-      provider: "serper" | "google";
+      provider: "serper" | "google" | "searchapi";
       apiKey?: string;
       apiKeyEnvVar?: string;
     };
     scrape?: {
       enabled: boolean;
-      provider: "playwright" | "fetch";
+      provider: "playwright" | "fetch" | "scrapecreators" | "apify";
     };
     apify?: {
       enabled: boolean;
       apiToken?: string;
+      apiTokenEnvVar?: string;
+    };
+    mistral?: {
+      enabled?: boolean;
       apiTokenEnvVar?: string;
     };
   };
@@ -99,6 +103,83 @@ export type AdsManagerPluginConfig = {
     apiKey?: string;
     apiKeyEnvVar?: string;
   };
+  facebookPage?: {
+    enabled: boolean;
+    pageId?: string;
+    pageIdEnvVar?: string;
+    pageAccessToken?: string;
+    pageAccessTokenEnvVar?: string;
+    apiVersion: string;
+  };
+};
+
+export type FacebookPage = {
+  id: string;
+  business_id: string;
+  fb_email: string;
+  page_name: string;
+  category?: string;
+  access_token: string;
+  perms?: any;
+  is_selected: boolean;
+  observed_at: string;
+};
+
+// ─── Phase 19: Competitor Ad Intelligence ─────────────────────────────────
+
+export type HookType = "number" | "question" | "painpoint" | "generic";
+export type ScoreLabel = "excellent" | "good" | "average" | "skip";
+export type EngagementSource = "apify" | "proxy_model";
+export type ImpressionsBand = "< 1K" | "1K-5K" | "5K-20K" | "20K-100K" | "100K-500K" | "> 500K";
+
+export type PostEngagementData = {
+  postUrl: string;
+  likes: number;
+  comments: number;
+  shares: number;
+  isVideo: boolean;
+  postText: string;
+  scrapedAt: string;
+  source: EngagementSource;
+};
+
+export type RawCompetitorAd = {
+  adLibraryId: string;
+  adText: string;
+  pageName: string;
+  postUrl?: string;
+  adLibraryUrl: string;
+  startDate: string;
+  daysLive: number;
+  isActive: boolean;
+  platforms: string[];
+  mediaType: "image" | "video" | "carousel" | "other";
+  impressionsBand?: ImpressionsBand;
+  ctaButton?: string;
+};
+
+export type AdScoreBreakdown = {
+  socialSignals: number;      // max 40
+  longevitySignals: number;   // max 30
+  creativeQuality: number;    // max 30
+};
+
+export type AdAnalysisFlags = {
+  commentLikeRatio: number;
+  suspectedFakeEngagement: boolean;
+  hookType: HookType;
+  hasCTA: boolean;
+  hasSocialProof: boolean;
+  hasPrice: boolean;
+};
+
+export type ScoredCompetitorAd = RawCompetitorAd & {
+  engagement: PostEngagementData;
+  trustScore: number;
+  scoreLabel: ScoreLabel;
+  scoringVersion: "v2";
+  scoreBreakdown: AdScoreBreakdown;
+  analysisFlags: AdAnalysisFlags;
 };
 
 export type SourceRegistryEntry = {
@@ -147,6 +228,13 @@ export type AccountSnapshot = {
   cpa?: number;
 };
 
+export type DailyPoint = {
+  date: string;
+  spend: number;
+  cpa: number;
+  roas: number;
+};
+
 export type CampaignSnapshot = {
   id: string;
   name: string;
@@ -163,6 +251,7 @@ export type CampaignSnapshot = {
   region?: string;
   audience?: string;
   notes?: string[];
+  historicalData?: DailyPoint[];
 };
 
 export type CompetitorSnapshot = {
@@ -211,6 +300,30 @@ export type BossInstruction = {
   status: "queued" | "acknowledged";
 };
 
+export type StrategicMemory = {
+  category: "scaling" | "creative" | "targeting" | "budget" | "auth";
+  insight: string;
+  confidenceScore: number;
+  createdAt: string;
+};
+
+export type FileType = "pdf" | "txt" | "docx" | "md" | "other";
+
+export interface UserKnowledgeDoc {
+  id: string;
+  telegramId: string;
+  filename: string;
+  fileType: FileType;
+  rawSizeBytes?: number;
+  extractedText?: string;
+  summary?: string;
+  tags?: string;
+  processingModel?: string;
+  processingStatus: "pending" | "done" | "failed";
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export type AssistantState = {
   version: number;
   lastSyncAt?: string;
@@ -218,6 +331,7 @@ export type AssistantState = {
   proposals: DerivedProposal[];
   instructions: BossInstruction[];
   competitors?: CompetitorSnapshot[];
+  strategicMemory?: StrategicMemory[];
 };
 
 export type DerivedCampaignView = {
@@ -259,12 +373,25 @@ export type MetaWebhookEventStore = {
   events: MetaWebhookEvent[];
 };
 
+export type MetaAccountHealth = {
+  fb_email: string;
+  access_token?: string;
+  success_count: number;
+  fail_count: number;
+  last_error?: string;
+  last_login_at?: string;
+  proxy_url?: string;
+};
+
 export type AssistantOperationalStatus = {
   dataSource: "none" | AdsManagerSyncMode;
   recentWebhookEvents: number;
   lastWebhookEventAt?: string;
   webhookPath?: string;
   liveWritesEnabled: boolean;
+  accounts?: MetaAccountHealth[];
+  pages?: FacebookPage[];
+  selectedPageId?: string;
 };
 
 export type AssistantContext = {

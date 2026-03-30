@@ -55,17 +55,17 @@
           "safeMode": true,
           "refreshIntervalMinutes": 15,
           "business": {
-            "name": "Boss Store Vietnam",
-            "industry": "Thực phẩm chức năng & Chăm sóc sức khỏe (Health & Wellness)",
-            "ownerName": "Boss",
-            "primaryObjective": "Tối ưu ROAS và mở rộng quy mô các chiến dịch chuyển đổi hiệu quả",
+            "name": "Ads Campaign Manager",
+            "industry": "Ads-driven Business",
+            "ownerName": "Sếp",
+            "primaryObjective": "Tối ưu ROAS và mở rộng quy mô kinh doanh",
             "currency": "VND",
             "timezone": "Asia/Ho_Chi_Minh"
           },
           "snapshotPath": "./extensions/ads-campaign-manager/references/snapshot.example.json",
           "sourceRegistryPath": "./extensions/ads-campaign-manager/references/source-registry.yaml",
           "database": {
-            "enabled": false,
+            "enabled": true,
             "host": "127.0.0.1",
             "port": 3306,
             "user": "root",
@@ -79,8 +79,8 @@
           },
           "meta": {
             "enabled": false,
-            "accessToken": "ĐIỀN_TOKEN_CỦA_SẾP_VÀO_ĐÂY",
-            "adAccountId": "act_ĐIỀN_ID_TÀI_KHOẢN_VÀO_ĐÂY",
+            "accessToken": "",
+            "adAccountId": "",
             "insightsDatePreset": "today"
           },
           "intelligence": {

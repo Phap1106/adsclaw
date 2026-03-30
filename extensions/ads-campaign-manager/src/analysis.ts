@@ -4,6 +4,7 @@ import type {
   AssistantState,
   BudgetSummary,
   CampaignSnapshot,
+  DailyPoint,
   DerivedAlert,
   DerivedAssistantView,
   DerivedCampaignView,
@@ -234,14 +235,34 @@ function evaluateCampaign(params: {
       status === "active"
     ) {
       reasons.push("Campaign is meeting scale criteria.");
+      
+      let scaleSummary = `ROAS ${roas.toFixed(2)} và CTR ${ctr.toFixed(3)} đang vượt ngưỡng scale.`;
+      let scaleReason = "Strong efficiency with enough spend to scale safely.";
+      
+      if (campaign.historicalData && campaign.historicalData.length >= 7) {
+        const prediction = calculateDiminishingReturns(campaign.historicalData, config.thresholds.minRoas, config.execution.scaleUpMultiplier || 1.2);
+        const elasticity = prediction.elasticityFactor ?? 0;
+        if (prediction.canScale) {
+          scaleSummary += ` Dự báo ROAS sau khi tăng (theo mô hình Logarithmic) đạt ${prediction.predictedROAS.toFixed(2)} (vẫn trên target ${config.thresholds.minRoas}). `;
+          scaleReason = `Căn cứ theo hệ số co giãn đa chiều (elasticity=${elasticity.toFixed(2)}) trên cửa sổ 14 ngày, việc tăng ngân sách vẫn đảm bảo hiệu quả sinh lời.`;
+        } else {
+          // If prediction says NO, we downgrade to "watch" and don't push a high-impact proposal
+          health = maxHealth(health, "watch");
+          reasons.push(`Dự báo điểm bão hòa (Scale Ceiling): Tăng ngân sách sẽ kéo ROAS xuống ${prediction.predictedROAS.toFixed(2)}, vi phạm ngưỡng hiệu quả.`);
+          return { campaign, health, reasons }; // Skip the scaling proposal
+        }
+      } else if (campaign.historicalData && campaign.historicalData.length > 0) {
+        reasons.push(`Dữ liệu lịch sử (${campaign.historicalData.length} ngày) chưa đủ tin cậy để dự báo Scale Ceiling (cần tối thiểu 7 ngày).`);
+      }
+
       pushUniqueProposal(
         proposals,
         buildProposal({
           action: "tangngansach",
           impact: "high",
           title: `Tăng budget có kiểm soát cho ${campaign.name}`,
-          summary: `ROAS ${roas.toFixed(2)} và CTR ${ctr.toFixed(3)} đang vượt ngưỡng scale.`,
-          reason: "Strong efficiency with enough spend to scale safely.",
+          summary: scaleSummary,
+          reason: scaleReason,
           campaignId: campaign.id,
         }),
       );
@@ -421,5 +442,79 @@ export function buildDerivedAssistantView(params: {
       snapshot,
     }),
     budget,
+  };
+}
+
+/**
+ * Predictive Analytics: Diminishing Returns & Scale Ceiling
+ * Calculates the inflection point where spending more budget will result in negative ROAS.
+ */
+
+export function calculateDiminishingReturns(
+  historicalData: DailyPoint[], 
+  targetROAS: number,
+  proposedSpendMultiplier: number = 1.2
+) {
+  // Phase 25: Increased window to 14 days for commercial stability
+  const MIN_DAYS = 7; 
+  if (historicalData.length < MIN_DAYS) {
+    return {
+      canScale: false,
+      reason: `Not enough historical data (< ${MIN_DAYS} days)`,
+      predictedCPA: 0,
+      predictedROAS: 0,
+      elasticityFactor: 1.1
+    };
+  }
+
+  // Use the last 14 days for analysis
+  const data = [...historicalData]
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    .slice(-14);
+  
+  let totalSpendChange = 0;
+  let totalCpaChange = 0;
+
+  for (let i = 1; i < data.length; i++) {
+    const spendDiff = (data[i].spend - data[i-1].spend) / Math.max(data[i-1].spend, 1);
+    const cpaDiff = (data[i].cpa - data[i-1].cpa) / Math.max(data[i-1].cpa, 1);
+    
+    // Weight more recent days more heavily (Phase 25 improvement)
+    const weight = 1 + (i / data.length);
+    if (Math.abs(spendDiff) > 0.05) {
+      totalSpendChange += (spendDiff * weight);
+      totalCpaChange += (cpaDiff * weight);
+    }
+  }
+
+  let elasticity = 1.1; 
+  if (totalSpendChange > 0) {
+    elasticity = totalCpaChange / totalSpendChange;
+    // Elasticity capping to maintain model sanity
+    elasticity = Math.max(0.5, Math.min(elasticity, 3.0));
+  }
+
+  const latest = data[data.length - 1];
+  const predictedSpendDiff = proposedSpendMultiplier - 1.0;
+
+  // --- Phase 25: Logarithmic S-Curve Modeling ---
+  // A linear increase budget doesn't result in linear CPA increase; it accelerates.
+  // Formula: NewCPA = OldCPA * (1 + ln(1 + spendDiff) * elasticity)
+  const predictedCpaIncrease = Math.log(1 + predictedSpendDiff) * elasticity;
+  const predictedCPA = latest.cpa * (1 + predictedCpaIncrease);
+  
+  const predictedROAS = latest.cpa > 0 ? latest.roas * (latest.cpa / predictedCPA) : 0;
+
+  return {
+    elasticityFactor: elasticity,
+    currentCPA: latest.cpa,
+    predictedCPA,
+    currentROAS: latest.roas,
+    predictedROAS,
+    canScale: predictedROAS >= targetROAS,
+    windowSize: data.length,
+    reason: predictedROAS >= targetROAS 
+      ? `Safe to scale. Predicted ROAS ${predictedROAS.toFixed(2)} (Log Model) is above target ${targetROAS}.`
+      : `Diminishing returns hit. Logarithmic model predicts ROAS will drop to ${predictedROAS.toFixed(2)} at this scale.`
   };
 }

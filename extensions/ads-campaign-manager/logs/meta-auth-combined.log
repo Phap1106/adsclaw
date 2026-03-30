@@ -1,0 +1,4 @@
+{"level":"info","message":"Test log message: EAAG_TOKEN_123456789012345678901234567890","service":"meta-auth","timestamp":"2026-03-26T13:06:33.585Z"}
+{"level":"info","message":"Test log message: [REDACTED_TOKEN]","service":"meta-auth","timestamp":"2026-03-26T13:07:41.391Z"}
+{"level":"info","message":"Test log message: [REDACTED_TOKEN]","service":"meta-auth","timestamp":"2026-03-26T13:16:33.189Z"}
+{"level":"info","message":"Test log message: [REDACTED_TOKEN]","service":"meta-auth","timestamp":"2026-03-26T13:18:10.517Z"}

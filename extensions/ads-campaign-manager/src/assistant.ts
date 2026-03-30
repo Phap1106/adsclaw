@@ -213,10 +213,11 @@ function resolveStateFile(runtime: PluginRuntime): string {
   return path.join(resolveAdsManagerStateDir(runtime), STATE_FILENAME);
 }
 
-import { loadStateFromDb, saveStateToDb, saveSnapshotToDb } from "./db-state.js";
+import { loadStateFromDb, saveStateToDb, saveSnapshotToDb, initPhase3Tables, fetchMetaAccountsHealth, getUserFacebookPages } from "./db-state.js";
 
 async function loadAssistantState(runtime: PluginRuntime, config: AdsManagerPluginConfig): Promise<AssistantState> {
   if (config.database?.enabled) {
+    await initPhase3Tables(config);
     return loadStateFromDb(config);
   }
   const parsed = await readJsonFile(resolveStateFile(runtime));
@@ -245,6 +246,7 @@ async function loadAssistantState(runtime: PluginRuntime, config: AdsManagerPlug
           .map(normalizeSnapshotCompetitor)
           .filter((c): c is NonNullable<typeof c> => c !== null)
       : [],
+    strategicMemory: Array.isArray(record.strategicMemory) ? record.strategicMemory : [],
   };
 }
 
@@ -392,7 +394,35 @@ export async function loadAssistantContext(params: {
   const registry = await loadSourceRegistry(params.pluginConfig.sourceRegistryPath);
   const registrySummary = summarizeSourceRegistry(registry);
 
-  const configErrors = validatePluginConfig(params.pluginConfig);
+  const effectiveConfig = { ...params.pluginConfig };
+  
+  // Attempt to load DB credentials and merge into config
+  if (effectiveConfig.database?.enabled) {
+    const { initPhase3Tables } = await import("./db-state.js");
+    await initPhase3Tables(effectiveConfig);
+
+    const businessId = Buffer.from(effectiveConfig.business.name).toString("base64").slice(0, 64);
+    const { executeQuery } = await import("./db.js");
+    const dbConfig = await executeQuery<any[]>(effectiveConfig, "SELECT meta_access_token, meta_ad_account_id FROM business_config WHERE id = ?", [businessId]);
+
+    if (dbConfig && dbConfig.length > 0) {
+      const row = dbConfig[0];
+      if (row.meta_access_token && row.meta_ad_account_id) {
+        effectiveConfig.meta = {
+          ...effectiveConfig.meta,
+          enabled: true,
+          accessToken: row.meta_access_token,
+          adAccountId: row.meta_ad_account_id,
+        };
+        // Switch to live mode if credentials exist and it's not explicitly snapshot-only
+        if (effectiveConfig.syncMode !== "snapshot") {
+          effectiveConfig.syncMode = "meta_api";
+        }
+      }
+    }
+  }
+
+  const configErrors = validatePluginConfig(effectiveConfig);
   const warnings = [...configErrors];
 
   let state: AssistantState;
@@ -404,9 +434,9 @@ export async function loadAssistantContext(params: {
     snapshotResult = { snapshot: null, warnings: [], dataSource: "none" };
     eventStore = { version: 1, events: [] };
   } else {
-    state = await loadAssistantState(params.runtime, params.pluginConfig);
+    state = await loadAssistantState(params.runtime, effectiveConfig);
     snapshotResult = await loadConfiguredSnapshot({
-      pluginConfig: params.pluginConfig,
+      pluginConfig: effectiveConfig,
       logger: params.logger,
     });
     eventStore = await loadMetaWebhookEventStore(params.runtime);
@@ -415,7 +445,7 @@ export async function loadAssistantContext(params: {
   const derived = buildDerivedAssistantView({
     snapshot: snapshotResult.snapshot,
     state,
-    config: params.pluginConfig,
+    config: effectiveConfig, // Use effectiveConfig here
   });
 
   state.proposals = mergeProposals({
@@ -425,7 +455,7 @@ export async function loadAssistantContext(params: {
   derived.generatedProposals = state.proposals;
 
   return {
-    config: params.pluginConfig,
+    config: effectiveConfig,
     registry,
     registrySummary,
     snapshot: snapshotResult.snapshot,
@@ -435,11 +465,14 @@ export async function loadAssistantContext(params: {
       dataSource: snapshotResult.dataSource,
       recentWebhookEvents: eventStore.events.length,
       lastWebhookEventAt: eventStore.events[0]?.receivedAt,
-      webhookPath: params.pluginConfig.meta.enabled ? params.pluginConfig.meta.webhookPath : undefined,
+      webhookPath: effectiveConfig.meta.enabled ? effectiveConfig.meta.webhookPath : undefined,
       liveWritesEnabled:
-        !params.pluginConfig.safeMode &&
-        params.pluginConfig.meta.enabled &&
-        params.pluginConfig.execution.enableMetaWrites,
+        !effectiveConfig.safeMode &&
+        effectiveConfig.meta.enabled &&
+        effectiveConfig.execution.enableMetaWrites,
+      accounts: await fetchMetaAccountsHealth(effectiveConfig),
+      pages: await getUserFacebookPages(effectiveConfig),
+      selectedPageId: (await getUserFacebookPages(effectiveConfig)).find(p => p.is_selected)?.id,
     },
     warnings,
   };
@@ -449,6 +482,7 @@ export async function runAssistantSync(params: {
   runtime: PluginRuntime;
   logger: Logger;
   pluginConfig: AdsManagerPluginConfig;
+  telegramId?: string;
 }): Promise<AssistantContext> {
   const context = await loadAssistantContext(params);
   if (context.warnings.some(w => w.includes("chưa được cấu hình") || w.includes("thiếu"))) {
@@ -469,7 +503,7 @@ export async function runAssistantSync(params: {
     const intervalMs = (params.pluginConfig.aiAnalysis.intervalHours ?? 6) * 60 * 60 * 1000;
     
     if (now - lastAt >= intervalMs) {
-      await runAiAnalysis({ ...params, context });
+      await runAiAnalysis({ ...params, context, telegramId: params.telegramId });
       context.state.lastAiAnalysisAt = new Date().toISOString();
       await saveAssistantState(params.runtime, params.pluginConfig, context.state);
     } else {
@@ -489,6 +523,7 @@ async function runAiAnalysis(params: {
   logger: Logger;
   pluginConfig: AdsManagerPluginConfig;
   context: AssistantContext;
+  telegramId?: string;
 }): Promise<void> {
   const prompt = `
 You are the Senior Ads Specialist and AI Analyst. 
@@ -517,13 +552,26 @@ ${params.context.state.competitors?.slice(0, 10).map(c => `- ${c.name}: ${c.angl
 Recent Instructions:
 ${params.context.state.instructions.filter(i => i.status === "queued").map(i => `- ${i.text}`).join("\n")}
 
+Strategic Memory (Lessons Learned):
+${params.context.state.strategicMemory?.slice(0, 10).map(m => `- [${m.category}] ${m.insight} (Confidence: ${m.confidenceScore})`).join("\n") ?? "No historical lessons learned yet."}
+
+${await import("./knowledge-base.js").then(m => m.getUserKnowledgeContext(params.pluginConfig, params.telegramId || ""))}
+
 Your Task:
-1. Review the data and instructions.
-2. If any campaign needs action (scale, kill, optimize), use "ads_manager_create_proposal".
-3. If an existing instruction can be addressed now, do so and then use "ads_manager_ack_instruction".
-6. Use "ads_manager_analyze_ads" to deeply analyze all active ads of a competitor from Facebook Ad Library. This is the best way to see their current running creative.
-7. Use "ads_manager_save_competitor" to save insights about a competitor to your long-term memory.
-8. Be precise, strategic, and proactive.
+1. Review the data and instructions as a Senior Ads Systems Expert (20 years experience).
+2. Use "ads_manager_doctor" to verify system health before making complex recommendations if any data looks suspicious.
+3. If any campaign needs action (scale, kill, optimize), use "ads_manager_create_proposal".
+4. If an existing instruction can be addressed now, do so and then use "ads_manager_ack_instruction".
+5. Use "ads_manager_analyze_ads" to deeply analyze all active ads of a competitor.
+6. Use "ads_manager_save_competitor" to save insights about a competitor.
+
+GOLD-STANDARD RULES:
+- RULE 1 (SECURITY): NEVER reveal API Keys, Tokens, or Phone numbers in your response.
+- RULE 2 (PROACTIVE): Never just list data. Always propose an ACTION based on that data (e.g., "Chi phí CPA đang cao ở Campaign X, tôi đề xuất giảm ngân sách 20%").
+- RULE 3 (ACCURACY): If an API fails or returns low-quality data (missing metadata like dates/CTA), ALWAYS use "ads_manager_get_competitor_insights" to check the internal Database for accurate historical results.
+- RULE 4 (TONE): Speak with high authority and confidence ("Thưa Sếp", "Tôi đề xuất", "Theo phân tích của tôi").
+- RULE 5 (PERSISTENCE): Before reporting competitive data as [DỮ LIỆU TRỐNG], you MUST query the database once.
+- RULE 6 (TARGETING INTEL & CONSULTING): Meta hides exact "Interests". Analyze Ad Text to INFER targets. **PROACTIVE CONSULTING:** Use the EXHAUSTIVE hierarchy in \`targeting_taxonomy.md\` (Source: Qn92.vn) for suggestions. Do NOT give broad categories; give specific sub-nodes (e.g., "Sở thích > Kinh doanh > Bất động sản" + "Nhân khẩu học > Kỷ niệm 30 ngày"). Propose a "Phễu Target" combining Broad, Niche, and Layering (Engaged Shoppers).
 `;
 
   try {
@@ -533,6 +581,7 @@ Your Task:
       message: "Analyze the latest campaign metrics and boss instructions. Take appropriate actions.",
       extraSystemPrompt: prompt,
       lane: "proactive-optimization",
+      idempotencyKey: `${Date.now()}-${Math.random().toString(36).substring(2)}`,
     });
   } catch (error) {
     params.logger.warn(`[ads-campaign-manager] failed to spawn AI analyst: ${error instanceof Error ? error.message : String(error)}`);
@@ -609,15 +658,34 @@ export async function createProposal(params: {
   const context = await loadAssistantContext(params);
   const now = new Date().toISOString();
   const id = `ai_${Date.now().toString(36)}`;
+  
+  // Tier 1: Autonomous Execution for low-impact changes (e.g. pausing a dead ad)
+  const isAutoTier = !params.pluginConfig.safeMode && params.proposal.impact === "low";
+  const initialStatus = isAutoTier ? "approved" : "pending";
+
   const proposal: DerivedProposal = {
     ...params.proposal,
     id,
-    status: "pending",
+    status: initialStatus,
     createdAt: now,
     updatedAt: now,
   };
   context.state.proposals.unshift(proposal);
   await saveAssistantState(params.runtime, params.pluginConfig, context.state);
+
+  if (isAutoTier && params.pluginConfig.execution.enableMetaWrites) {
+    params.logger.info(`[ads-campaign-manager] Auto-executing Tier 1 proposal: ${proposal.title}`);
+    try {
+      await applyMetaProposalAction({
+        config: params.pluginConfig,
+        snapshot: context.snapshot,
+        proposal,
+      });
+    } catch (e) {
+      params.logger.error(`[ads-campaign-manager] Auto-Tier 1 failed: ${e}`);
+    }
+  }
+
   return await loadAssistantContext(params);
 }
 

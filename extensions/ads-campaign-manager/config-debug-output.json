@@ -1,0 +1,19 @@
+{
+  "rawDatabase": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "root",
+    "password": "password",
+    "database": "ads_manager"
+  },
+  "resolvedDatabase": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "root",
+    "password": "password",
+    "database": "ads_manager"
+  },
+  "businessName": "Ads Campaign Manager"
+}
