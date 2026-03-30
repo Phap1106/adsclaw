@@ -1,201 +1,196 @@
 ---
 name: campaign-optimization
-description: Expert playbook for Meta Ads campaign optimization decisions. Covers budget scaling, pausing, bid strategy selection, audience expansion, and ROAS improvement — specifically for Vietnamese ecommerce and retail advertisers.
+description: Budget and bidding optimization with CEP safety protocol. Handles /pheduyet, /tuchoi, scale up/down proposals, campaign pause/resume. ALWAYS uses Confirm→Execute→Verify before any Meta write. Auto-generates proposals based on health scores. safeMode=true means proposals only, no direct execution.
 ---
 
-# ⚡ Campaign Optimization Playbook
+# Campaign Optimization Skill
 
-> **Purpose**: Make smart, data-driven optimization decisions. Every recommendation must cite specific metric evidence. Never optimize based on a single day's data.
+### Phase 3 ZERO-TRUST & CEP DISCIPLINE
+- **Rule 1: Mathematical Justification:** Mọi đề xuất Scale hay Cut PHẢI trích dẫn công thức từ `ad-math.ts`. Ghi nhãn `[HỆ THỐNG XÁC THỰC 100%]`.
+- **Rule 2: Anomaly Protection:** Tuyệt đối không scale các campaign có data dị thường (ROAS ảo, CPA ảo).
+- **Rule 3: Audit Trail:** Báo cáo thực thi phải ghi rõ `[Audit Trail: Đã lưu vào MySQL]`.
+- **Rule 4: Zero-Hallucination:** Tuyệt đối không tự nhẩm ngân sách mới. AI chỉ đề xuất % hoặc hướng tăng/giảm.
 
----
+## CORE PROTOCOL: CEP (Confirm → Execute → Verify)
 
-## 1. Scaling Decision Rules
+NEVER execute a Meta change without this protocol:
 
-### 1.1 When to Scale Up (Increase Budget)
-Conditions that MUST ALL be true:
 ```
-✅ ROAS > 2.6 (scaleRoas threshold)
-✅ Campaign NOT in Learning Phase (>50 conversions)
-✅ At least 7 days of stable data
-✅ Current budget is NOT exhausted (< 95% of daily budget spent)
-✅ CTR (all) is stable or improving (not dropping week-over-week)
-```
+STEP 1 — CONFIRM
+Show exactly what will change:
+"⚠️ XÁC NHẬN THAY ĐỔI:
+  Campaign: [Name]
+  Thay đổi: Budget [X]đ → [Y]đ (+30%)
+  Lý do: ROAS 3.2 vượt ngưỡng scale (2.6)
+  Rủi ro: [low/medium/high]
+  
+  Nhập 'xác nhận' để thực thi hoặc 'bỏ qua' để hủy"
 
-**How much to scale:**
-- Conservative: +20% budget
-- Standard: +30% budget
-- Aggressive: +50% budget (only if ROAS > 3.5 AND 14+ days of data)
-
-**Golden Rule**: Never more than +50% in a single step. Meta system needs time to adjust.
-
-### 1.2 When to Scale Down (Decrease Budget)
-Conditions (ANY ONE triggers review):
-```
-⚠️ ROAS < 1.5 for 3+ consecutive days
-⚠️ CPA > 300,000đ (120% of 250,000đ threshold) for 3+ days
-⚠️ CTR (all) dropped >40% week-over-week (creative fatigue)
-⚠️ Budget utilization > 110% (overspending)
-⚠️ Learning Limited status with no path to 50 conversions
+STEP 3 — VERIFY
+Check that change took effect:
+"✅ ĐÃ THỰC THI (🕒 [Timestamp]):
+  Campaign [Name]
+  Budget: [X]đ → [Y]đ ✅ (confirmed via API)
+  [MATH ENGINE]: Đã khớp ngân sách mới với multiplier x [Multiplier].
+  [Audit Trail]: Record ID `[proposalId]` đã đóng."
 ```
 
-**How much to reduce:**
-- CPA slightly high: -20%
-- CPA very high (>2x): -40%
-- Not getting conversions: -50% or pause
-
-### 1.3 When to PAUSE
-```
-🔴 CPA > 2x threshold (500,000đ+) for 5+ days
-🔴 Zero conversions in 7 days with >1M VND spend
-🔴 Ad account or payment method issue
-🔴 Product out of stock / landing page down
-```
+**EXCEPTION**: `/tuchoi` (reject) never needs confirmation — it's a safe action.
 
 ---
 
-## 2. Bid Strategy Decision Tree
+## PROPOSAL TYPES
 
+### tangngansach (Scale Up)
 ```
-Campaign Objective?
-├── TRAFFIC / AWARENESS
-│   → Highest volume
-│   → No cost cap needed
-│
-└── CONVERSIONS / SALES
-    ├── New campaign / testing phase?
-    │   → Highest volume (let system learn first)
-    │   → Wait for 50 conversions → then consider cost cap
-    │
-    └── Mature campaign (>50 conversions/week)?
-        ├── CPA too volatile?
-        │   → Cost per result goal: set at 110% of current CPA
-        ├── ROAS inconsistent?
-        │   → ROAS goal: set at 85% of target ROAS
-        └── Competitive auction?
-            → Bid cap: set at average CPC × 1.5 (estimate only)
+Trigger: ROAS ≥ 2.6 + CTR ≥ 1.2% + active + !learning + spend > 300k
+Action: Budget × scaleUpMultiplier (default 1.15 = +15%)
+Cap: Never exceed 2× current budget in single step
+Template:
+  Title: "Tăng budget [Name] +[X]%"
+  Summary: "ROAS [X] vượt ngưỡng scale. CTR [X]% khỏe."
+  Reason: "Strong efficiency with enough data to scale safely."
+  Impact: high
 ```
 
----
-
-## 3. Audience Strategy
-
-### 3.1 Audience Size Guidelines (Vietnam market)
-| Campaign Goal | Audience Size |
-|--------------|---------------|
-| Conversion (Purchase) | 500K – 3M |
-| Lead Generation | 300K – 2M |
-| Traffic / Retargeting | 50K – 500K |
-| Broad (Advantage+) | Let Meta decide |
-
-### 3.2 Audience Expansion Decision
-**Expand when:**
-- Frequency > 2.5 in 7 days (audience saturation)
-- Reach is declining while budget is stable
-- CTR (all) trending down with stable creative
-
-**How to expand:**
-1. Increase age range by ±5 years
-2. Add 2–3 related interests
-3. Switch to Advantage+ Audience (let Meta find similar accounts)
-4. Move from detailed targeting → Broad targeting (Meta's recommendation for conversion objectives)
-
-### 3.3 Audience Overlap Warning
-- If 2+ ad sets target same audience → Auction overlap risk
-- Signal: ad sets spending less than allocated budget despite being active
-- Fix: Combine similar ad sets OR exclude overlapping audiences
-
----
-
-## 4. Landing Page Optimization Rules
-
-These are NOT Meta Ads issues but affect conversion rate ranking:
-
-### High Conversion Rate Ranking Signals:
-- Page load < 3 seconds (mobile)
-- Offer on landing page MATCHES ad offer exactly
-- Single clear CTA button visible above fold
-- Social proof visible without scrolling
-
-### Diagnose Landing Page Issues:
+### giamngansach (Scale Down)
 ```
-Low Conversion Rate Ranking + High CTR (link click-through rate)
-  → People click but don't convert
-  → Root cause: landing page mismatch OR slow load
-  → Action: Check landing page on mobile, compare ad promise vs page
+Trigger: ROAS < 1.5 + spend > 300k + !learning
+Action: Budget × scaleDownMultiplier (default 0.85 = -15%)
+Floor: Never below minimumBudget (default 100,000đ)
+Template:
+  Title: "Giảm budget [Name] -[X]%"
+  Summary: "ROAS [X] dưới ngưỡng tối thiểu [1.5]."
+  Reason: "Stop waste before ROAS improves."
+  Impact: high
+```
+
+### lammoiads (Creative Refresh)
+```
+Trigger: CTR < 1.2% + spend > 300k + !learning
+OR: Frequency > 3.0 + CTR declining
+Template:
+  Title: "Làm mới creative [Name]"
+  Summary: "CTR [X]% / Frequency [X] → dấu hiệu creative fatigue."
+  Reason: "New creative is safer than budget changes."
+  Impact: medium
+```
+
+### tamngung (Pause)
+```
+Trigger: Manual boss request OR ROAS < 0.5 (emergency)
+ALWAYS requires CEP confirmation
+Template:
+  Title: "Tạm dừng [Name]"
+  Summary: "Boss yêu cầu tạm dừng / Performance khẩn cấp."
+  Reason: "[specific reason]"
+  Impact: high
 ```
 
 ---
 
-## 5. Campaign Health Scoring
+## /pheduyet HANDLER
 
-Score each campaign out of 100:
+## ULTRA-CONCISE RESPONSE TEMPLATES (C-SUITE STANDARD)
 
-| Metric | Green (full points) | Yellow (half) | Red (0) |
-|--------|---------------------|---------------|---------|
-| ROAS (20pt) | > 2.6 | 1.5–2.6 | < 1.5 |
-| CPA (20pt) | < 200K | 200–250K | > 250K |
-| CTR (all) (20pt) | > 2% | 1–2% | < 1% |
-| Learning Phase (20pt) | Active learner | Learning Limited | — |
-| Delivery (20pt) | Consistent spend | Under-delivery | Paused/Error |
+Always use strict bullet points, maximum data density, and the `👉 TÌNH TRẠNG - 🔍 INSIGHT - ⚡ HÀNH ĐỘNG` format. No fluff permitted.
 
-**Score Interpretation:**
-- **80–100**: 🟢 Scale this campaign
-- **60–79**: 🟡 Monitor, optimize one variable
-- **40–59**: 🟠 Needs significant intervention
-- **< 40**: 🔴 Propose pause, reallocate budget
-
----
-
-## 6. Budget Reallocation Framework
-
-When one campaign is losing and another is winning:
-
+### CEP PROTOCOL (Confirm → Execute → Verify)
+**1. CONFIRM (Before any Meta write):**
 ```
-Step 1: Identify loser (CPA > threshold, ROAS < 1.5)
-Step 2: Identify winner (ROAS > 2.6, stable learning)
-Step 3: Reduce loser by 30–40%
-Step 4: Increase winner by equivalent VND amount
-Step 5: Create proposal for boss approval
-Step 6: Monitor for 3 days after change
+👉 TÌNH TRẠNG (XÁC NHẬN THAY ĐỔI):
+• Lệnh: [Tăng/Giảm/Tạm dừng] Campaign `[Name]`.
+• NS Mới: [X]đ → [Y]đ (+[Z]%).
+
+🔍 INSIGHT:
+• ROAS hiện tại [X] (Vượt ngưỡng scale / Dưới ngưỡng). 
+
+⚡ HÀNH ĐỘNG (CEP Required):
+• Rủi ro: [Thấp/Cao].
+► Sếp gõ 'yes' để em bắn API thực thi, hoặc 'no' để huỷ lệnh?
 ```
 
-**Budget reallocation example:**
+**2. VERIFY (After Boss says 'yes'):**
 ```
-Loser campaign: 500K/day → 300K/day (save 200K)
-Winner campaign: 800K/day → 1,000K/day (add 200K)
-Net: Same total spend, better ROAS mix
+👉 TÌNH TRẠNG (ĐÃ THỰC THI):
+• ✅ Campaign `[Name]` đã cập nhật NS thành [Y]đ.
+
+⚡ HÀNH ĐỘNG:
+• Hệ thống sẽ theo dõi KPI (CPA/ROAS) trong 48h tới để đánh giá thay đổi.
 ```
 
----
+## /pheduyet & /tuchoi HANDLERS
 
-## 7. Weekly Optimization Checklist
-
-Every 7 days, run through this checklist:
-
+### /pheduyet [proposalId]:
 ```
-□ Review all campaigns: health score each one
-□ Check learning phase status — any "Learning Limited"?
-□ Review Engagement Rate Ranking — any drops to Below Average?
-□ Check Creative Fatigue — frequency > 2.5 anywhere?
-□ Review audience overlap — any ad sets underspending?
-□ Check competitor memory — any new competitor data to analyze?
-□ Create/update proposals for needed changes
-□ Review and acknowledge any boss instructions
+👉 TÌNH TRẠNG (ĐÃ DUYỆT):
+• Mã đề xuất: `[ID]`.
+• Trạng thái: Đang bắn lệnh qua API (hoặc: Cần manual vì safeMode=true).
+
+⚡ HÀNH ĐỘNG:
+• Còn [N] đề xuất đang chờ. Sếp gõ `/de_xuat` để xem tiếp nhé.
+```
+
+### /tuchoi [proposalId]:
+```
+👉 TÌNH TRẠNG (ĐÃ TỪ CHỐI):
+• Mã đề xuất: `[ID]` đã bị huỷ.
+
+⚡ HÀNH ĐỘNG:
+• Em đã note lại lý do. Sẽ không đề xuất lại trong 7 ngày tới.
 ```
 
 ---
 
-## 8. Vietnamese Market Seasonality Notes
+## BUDGET PACING RULES
 
-High competition periods (budget more competitive, CPM spikes):
-- **Tết Nguyên Đán** (Jan–Feb): CPM +50–100%, start campaigns early in Dec
-- **8/3** (Women's Day): Beauty/fashion spike, 1–2 weeks before
-- **11/11, 12/12**: Ecommerce sale events, prepare 2 weeks ahead
-- **Ngày Gia Đình** (28/6): Family products spike
-- **Back to School** (Aug): Education services spike
+```
+Pacing < 60%:
+  → "Đang chi chậm — điều chỉnh bid strategy nếu cần"
+  → No automatic action unless boss requests
 
-Low competition periods (cheaper CPM):
-- February (post-Tết slump)
-- June–July (summer low)
+Pacing 60-100%: ✅ Normal
 
-**Strategy**: Increase budget 2 weeks BEFORE high-competition events. Reduce during peak to ride organic demand if budget-constrained.
+Pacing 100-115%: ⚠️ "Gần vượt — theo dõi"
+
+Pacing > 115%: 🔴 ALERT HIGH
+  → Immediate proposal: giamngansach
+  → "Overspending detected: [X]% over budget"
+```
+
+---
+
+## CBO vs ABO HANDLING
+
+```
+CBO (Campaign Budget Optimization):
+  → Evaluate at CAMPAIGN level only
+  → Never analyze individual ad sets for scaling
+  → Budget change at campaign level
+
+ABO (Ad Budget Optimization):
+  → Evaluate each ad set independently
+  → Budget per ad set
+```
+
+---
+
+## SCALE CALCULATION
+
+```
+New budget = current × multiplier
+Round to nearest 50,000đ (cleaner numbers)
+Example: 1,234,567đ × 1.15 = 1,419,752đ → round to 1,400,000đ
+
+Minimum: 100,000đ/day
+Maximum single step increase: 2× current
+```
+
+---
+
+## PROPOSAL DEDUPLICATION
+
+Never create duplicate proposals:
+- Same action + same campaign = skip if pending exists
+- Use proposalId format: `[action]_[campaign-slug]`
+- Example: `tangngansach_winner-campaign-1`

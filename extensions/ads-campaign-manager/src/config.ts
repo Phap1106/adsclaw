@@ -1,5 +1,4 @@
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type {
   AdsManagerPluginConfig,
   AdsManagerSyncMode,
@@ -165,7 +164,7 @@ export function resolveAdsManagerPluginConfig(
           search: (raw.intelligence as any).search
             ? {
                 enabled: readBoolean((raw.intelligence as any).search.enabled, false),
-                provider: (raw.intelligence as any).search.provider === "google" ? "google" : "serper",
+                provider: (raw.intelligence as any).search.provider === "searchapi" ? "searchapi" : (raw.intelligence as any).search.provider === "google" ? "google" : "serper",
                 apiKey: readOptionalString((raw.intelligence as any).search.apiKey),
                 apiKeyEnvVar: readOptionalString((raw.intelligence as any).search.apiKeyEnvVar),
               }
@@ -173,7 +172,7 @@ export function resolveAdsManagerPluginConfig(
           scrape: (raw.intelligence as any).scrape
             ? {
                 enabled: readBoolean((raw.intelligence as any).scrape.enabled, false),
-                provider: (raw.intelligence as any).scrape.provider === "fetch" ? "fetch" : "playwright",
+                provider: (raw.intelligence as any).scrape.provider === "scrapecreators" ? "scrapecreators" : (raw.intelligence as any).scrape.provider === "apify" ? "apify" : (raw.intelligence as any).scrape.provider === "fetch" ? "fetch" : "playwright",
               }
             : undefined,
           apify: (raw.intelligence as any).apify

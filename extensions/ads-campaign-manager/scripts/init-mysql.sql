@@ -73,3 +73,32 @@ CREATE TABLE IF NOT EXISTS webhook_events (
     processed BOOLEAN DEFAULT FALSE,
     FOREIGN KEY (business_id) REFERENCES business_config(id) ON DELETE SET NULL
 );
+-- 6. Bảng lưu trữ Bài quảng cáo đối thủ (Competitor Ads)
+CREATE TABLE IF NOT EXISTS competitor_ads (
+    id VARCHAR(128) PRIMARY KEY,
+    business_id VARCHAR(64) NOT NULL,
+    page_name VARCHAR(128) NOT NULL,
+    hook_text TEXT,
+    media_url TEXT,
+    media_type ENUM('image', 'video', 'carousel', 'other') DEFAULT 'other',
+    cta_type VARCHAR(64),
+    started_at DATE,
+    duration_days INT DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    observed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    est_spend_vnd DECIMAL(15, 2) DEFAULT 0,
+    FOREIGN KEY (business_id) REFERENCES business_config(id) ON DELETE CASCADE,
+    INDEX idx_competitor_page (page_name)
+);
+
+-- 7. Bảng lưu trữ Market Benchmarks (Ngách thị trường)
+CREATE TABLE IF NOT EXISTS market_benchmarks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    niche VARCHAR(128) NOT NULL,
+    avg_cpa DECIMAL(15, 2),
+    avg_cpc DECIMAL(15, 2),
+    avg_roas DECIMAL(10, 2),
+    recorded_at DATE NOT NULL,
+    source VARCHAR(255),
+    UNIQUE KEY uni_niche_date (niche, recorded_at)
+);
